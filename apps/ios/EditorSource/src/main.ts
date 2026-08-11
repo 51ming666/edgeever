@@ -3,6 +3,7 @@ import "katex/dist/katex.min.css";
 import { Editor, mergeAttributes, Node } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
+import { TaskItem, TaskList } from "@tiptap/extension-list";
 import Placeholder from "@tiptap/extension-placeholder";
 import CodeBlock from "@tiptap/extension-code-block";
 import { TableKit } from "@tiptap/extension-table";
@@ -64,6 +65,8 @@ type BridgeMessage =
   | { type: "loadResource"; requestId: string; source: string }
   | { type: "resourcePress"; targetJson: string }
   | { type: "imagePreview"; source: string; alt: string }
+  | { type: "pickImage" }
+  | { type: "searchResult"; count: number; index: number }
   | { type: "activeFlags"; flags: number }
   | { type: "log"; message: string }
   | { type: "error"; message: string };
@@ -123,6 +126,8 @@ type ConfigureOptions = {
 
 const startedAt = performance.now();
 let mode: "viewer" | "editor" = "viewer";
+let locale = "zh-CN";
+let currentPlaceholder = "开始输入…";
 let suppressChange = false;
 const resourceResolvers = new Map<string, (dataUrl: string | null) => void>();
 let resourceSeq = 0;
@@ -604,6 +609,8 @@ function buildExtensions(placeholder: string) {
     StarterKit.configure({
       codeBlock: false,
     }),
+    TaskList,
+    TaskItem.configure({ nested: true }),
     MergeDivider,
     ...createEdgeEverMathematics(),
     CodeBlock.configure({
@@ -631,9 +638,11 @@ const editor = new Editor({
   editable: false,
   content: { type: "doc", content: [{ type: "paragraph" }] },
   onUpdate: ({ editor: ed }) => {
+    refreshToolbarState();
     if (suppressChange || mode !== "editor") return;
     emitChange(ed);
   },
+  onSelectionUpdate: () => refreshToolbarState(),
   editorProps: {
     attributes: {
       class: "edgeever-prose",
@@ -798,6 +807,20 @@ const serializeEditorMarkdown = (ed: Editor) => {
     : ed.getText({ blockSeparator: "\n\n" });
 };
 
+let pendingAiSelection: { from: number; to: number; documentFingerprint: string } | null = null;
+
+const serializeSelectionMarkdown = (ed: Editor, from: number, to: number) => {
+  const manager = (ed.storage as { markdown?: { manager?: { serialize?: (doc: unknown) => string } } })
+    .markdown?.manager;
+  const content = ed.state.doc.slice(from, to).content.toJSON();
+  if (manager?.serialize) {
+    return manager
+      .serialize(protectLiteralDollarPairs({ type: "doc", content }))
+      .replaceAll(LITERAL_DOLLAR_PLACEHOLDER, "\\$");
+  }
+  return ed.state.doc.textBetween(from, to, "\n\n");
+};
+
 function emitChange(ed: Editor) {
   try {
     const contentJson = JSON.stringify(ed.getJSON());
@@ -808,16 +831,71 @@ function emitChange(ed: Editor) {
   }
 }
 
+type EditorSearchMatch = { from: number; to: number };
+
+function getEditorSearchMatches(ed: Editor, query: string): EditorSearchMatch[] {
+  const needle = query.trim().toLocaleLowerCase();
+  if (needle.length === 0) return [];
+
+  const characters: Array<{ char: string; pos: number }> = [];
+  let previousTextEnd: number | null = null;
+  ed.state.doc.descendants((node, pos) => {
+    if (!node.isText || !node.text) return;
+    if (previousTextEnd !== null && pos > previousTextEnd) {
+      characters.push({ char: "\u0000", pos: -1 });
+    }
+    for (let index = 0; index < node.text.length; index += 1) {
+      characters.push({ char: node.text[index] ?? "", pos: pos + index });
+    }
+    previousTextEnd = pos + node.text.length;
+  });
+
+  const haystack = characters.map((item) => item.char).join("").toLocaleLowerCase();
+  const matches: EditorSearchMatch[] = [];
+  let index = haystack.indexOf(needle);
+  while (index !== -1) {
+    const start = characters[index];
+    const end = characters[index + needle.length - 1];
+    if (start && end && start.pos >= 0 && end.pos >= 0) {
+      matches.push({ from: start.pos, to: end.pos + 1 });
+    }
+    index = haystack.indexOf(needle, index + needle.length);
+  }
+  return matches;
+}
+
+const activeListItemType = () => editor.isActive("taskItem") ? "taskItem" : "listItem";
+
 function setToolbarVisible(visible: boolean) {
   toolbarEl.classList.toggle("editor-mode", visible);
   toolbarEl.innerHTML = "";
   if (!visible) return;
   const actions: Array<{ id: string; label: string; run: () => void }> = [
+    {
+      id: "image",
+      label: "▧+",
+      run: () => post({ type: "pickImage" }),
+    },
     { id: "bold", label: "B", run: () => editor.chain().focus().toggleBold().run() },
     {
       id: "bullet",
       label: "•",
       run: () => editor.chain().focus().toggleBulletList().run(),
+    },
+    {
+      id: "task",
+      label: "☑",
+      run: () => editor.chain().focus().toggleTaskList().run(),
+    },
+    {
+      id: "indent",
+      label: "⇥",
+      run: () => editor.chain().focus().sinkListItem(activeListItemType()).run(),
+    },
+    {
+      id: "outdent",
+      label: "⇤",
+      run: () => editor.chain().focus().liftListItem(activeListItemType()).run(),
     },
     {
       id: "quote",
@@ -829,31 +907,49 @@ function setToolbarVisible(visible: boolean) {
       label: "—",
       run: () => editor.chain().focus().setHorizontalRule().run(),
     },
-    {
-      id: "h2",
-      label: "H2",
-      run: () => editor.chain().focus().toggleHeading({ level: 2 }).run(),
-    },
-    {
-      id: "code",
-      label: "</>",
-      run: () => editor.chain().focus().toggleCodeBlock().run(),
-    },
   ];
   for (const action of actions) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.textContent = action.label;
     btn.dataset.action = action.id;
+    const labels: Record<string, [string, string]> = {
+      image: ["插入图片", "Insert image"],
+      bold: ["粗体", "Bold"],
+      bullet: ["项目符号列表", "Bullet list"],
+      task: ["任务清单", "Task list"],
+      indent: ["增加列表缩进", "Increase list indent"],
+      outdent: ["减少列表缩进", "Decrease list indent"],
+      quote: ["引用", "Block quote"],
+      hr: ["分隔线", "Horizontal rule"],
+    };
+    btn.setAttribute("aria-label", labels[action.id]?.[locale === "en-US" ? 1 : 0] ?? action.id);
     btn.addEventListener("click", () => {
       action.run();
-      emitChange(editor);
+      if (action.id !== "image") emitChange(editor);
+      refreshToolbarState();
     });
     toolbarEl.appendChild(btn);
   }
+  refreshToolbarState();
+}
+
+function refreshToolbarState() {
+  const active: Record<string, boolean> = {
+    bold: editor.isActive("bold"),
+    bullet: editor.isActive("bulletList"),
+    task: editor.isActive("taskList"),
+    quote: editor.isActive("blockquote"),
+  };
+  toolbarEl.querySelectorAll<HTMLButtonElement>("button[data-action]").forEach((button) => {
+    button.classList.toggle("is-active", active[button.dataset.action ?? ""] ?? false);
+  });
 }
 
 async function afterContentSet(theme: "light" | "dark" = "light") {
+  editorEl.querySelectorAll<HTMLElement>("[data-placeholder]").forEach((element) => {
+    element.dataset.placeholder = currentPlaceholder;
+  });
   await hydrateProtectedImages(editorEl);
   if (mode === "viewer") {
     await renderMermaidBlocks(editorEl, theme);
@@ -867,12 +963,16 @@ export type EdgeEverEditorAPI = {
   resolveResource: (requestId: string, dataUrl: string | null) => void;
   getMarkdown: () => string;
   getDocument: () => string;
+  captureSelection: () => string | null;
+  applySelectionDraft: (markdown: string, mode: "append" | "replace") => boolean;
+  undo: () => boolean;
   focusEnd: () => void;
   flush: () => void;
   exec: (actionId: string) => void;
   beginImageUpload: (uploadId: string, previewDataUrl: string) => void;
   completeImageUpload: (uploadId: string, imageUrl: string, alt: string) => void;
   cancelImageUpload: (uploadId: string) => void;
+  search: (query: string, requestedIndex: number) => void;
 };
 
 const api: EdgeEverEditorAPI = {
@@ -880,14 +980,17 @@ const api: EdgeEverEditorAPI = {
     const nextMode = opts.mode === "editor" ? "editor" : "viewer";
     const modeChanged = nextMode !== mode;
     mode = nextMode;
+    locale = opts.locale === "en-US" ? "en-US" : "zh-CN";
     editor.setEditable(mode === "editor");
     setToolbarVisible(mode === "editor");
     document.documentElement.dataset.theme = opts.theme || "light";
     document.body.classList.toggle("viewer-mode", mode === "viewer");
     document.body.classList.toggle("editor-mode", mode === "editor");
     if (opts.placeholder) {
-      // placeholder is extension config; update via meta class
-      editorEl.setAttribute("data-placeholder", opts.placeholder);
+      currentPlaceholder = opts.placeholder;
+      editorEl.querySelectorAll<HTMLElement>("[data-placeholder]").forEach((element) => {
+        element.dataset.placeholder = currentPlaceholder;
+      });
     }
     // Match Evernote-style edit entry: focus the surface when entering editor mode.
     // Combined with setContent's default end selection, caret lands at document end.
@@ -900,6 +1003,7 @@ const api: EdgeEverEditorAPI = {
         }
       });
     }
+    void afterContentSet(opts.theme || "light");
   },
 
   setMarkdown(md) {
@@ -958,6 +1062,53 @@ const api: EdgeEverEditorAPI = {
     return JSON.stringify(editor.getJSON());
   },
 
+  captureSelection() {
+    const { from, to, empty } = editor.state.selection;
+    if (empty || from >= to) {
+      pendingAiSelection = null;
+      return null;
+    }
+    pendingAiSelection = { from, to, documentFingerprint: JSON.stringify(editor.getJSON()) };
+    return JSON.stringify({
+      from,
+      to,
+      markdown: serializeSelectionMarkdown(editor, from, to),
+      text: editor.state.doc.textBetween(from, to, "\n\n"),
+    });
+  },
+
+  applySelectionDraft(markdown, applyMode) {
+    const range = pendingAiSelection;
+    if (!range || !markdown.trim()) return false;
+    if (JSON.stringify(editor.getJSON()) !== range.documentFingerprint) {
+      pendingAiSelection = null;
+      return false;
+    }
+    const docSize = editor.state.doc.content.size;
+    const from = Math.min(Math.max(range.from, 0), docSize);
+    const to = Math.min(Math.max(range.to, from), docSize);
+    try {
+      const manager = (editor.storage as { markdown?: { manager?: { parse?: (value: string) => { content?: unknown[] } } } })
+        .markdown?.manager;
+      const parsed = manager?.parse?.(markdown);
+      const content = parsed?.content ?? markdown;
+      const insertRange = applyMode === "append" ? { from: to, to } : { from, to };
+      editor.chain().focus().insertContentAt(insertRange, content as never).run();
+      pendingAiSelection = null;
+      emitChange(editor);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  undo() {
+    if (!editor.can().undo()) return false;
+    const changed = editor.commands.undo();
+    if (changed) emitChange(editor);
+    return changed;
+  },
+
   focusEnd() {
     try {
       editor.commands.focus("end");
@@ -984,6 +1135,7 @@ const api: EdgeEverEditorAPI = {
     const map: Record<string, () => void> = {
       bold: () => editor.chain().focus().toggleBold().run(),
       bulletList: () => editor.chain().focus().toggleBulletList().run(),
+      taskList: () => editor.chain().focus().toggleTaskList().run(),
       blockquote: () => editor.chain().focus().toggleBlockquote().run(),
       horizontalRule: () => editor.chain().focus().setHorizontalRule().run(),
       heading2: () => editor.chain().focus().toggleHeading({ level: 2 }).run(),
@@ -1027,6 +1179,25 @@ const api: EdgeEverEditorAPI = {
     const img = editorEl.querySelector(`img[data-upload-id="${uploadId}"]`);
     img?.remove();
     emitChange(editor);
+  },
+
+  search(query, requestedIndex) {
+    const matches = getEditorSearchMatches(editor, query);
+    const index = matches.length > 0
+      ? Math.min(Math.max(Number.isFinite(requestedIndex) ? requestedIndex : 0, 0), matches.length - 1)
+      : 0;
+    const match = matches[index];
+    if (match) {
+      editor.commands.setTextSelection({ from: match.from, to: match.to });
+      try {
+        const dom = editor.view.domAtPos(match.from).node;
+        const element = dom instanceof Element ? dom : dom.parentElement;
+        element?.scrollIntoView({ block: "center", behavior: "smooth" });
+      } catch {
+        /* ignore */
+      }
+    }
+    post({ type: "searchResult", count: matches.length, index });
   },
 };
 

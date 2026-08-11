@@ -137,6 +137,8 @@ import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { useMobileAutomaticSync } from "../hooks/useMobileAutomaticSync";
 import { useMobileLocalMirrorSync } from "../hooks/useMobileLocalMirrorSync";
 import { useMobileEditorResourceActions } from "../hooks/useMobileEditorResourceActions";
+import { useMobileEditorUploadAsset } from "../hooks/useMobileEditorUploadAsset";
+import { useMobileSelectionAi } from "../hooks/useMobileSelectionAi";
 import {
   filterCollapsedNotebookOptions,
   filterNotebookOptions,
@@ -184,6 +186,7 @@ const ANDROID_SYSTEM_NAVIGATION_FALLBACK = 48;
 const DETAIL_CONTENT_HORIZONTAL_PADDING = 16;
 const DETAIL_TABLE_FIT_COLUMN_COUNT = 3;
 const DETAIL_TABLE_MIN_COLUMN_WIDTH = 132;
+
 const resolveEditableMemoTitle = (title?: string | null) => {
   const trimmedTitle = title?.trim() ?? "";
   return trimmedTitle === DEFAULT_MEMO_TITLE ? "" : trimmedTitle;
@@ -917,6 +920,20 @@ export const WorkspaceScreen = ({
     },
   });
 
+  const applyAiDraftToMemo = async (memo: MemoDetail, draft: string, mode: "append" | "replace") => {
+    const normalizedDraft = draft.trim();
+    const contentMarkdown = mode === "append"
+      ? [memo.contentMarkdown.trimEnd(), normalizedDraft].filter(Boolean).join("\n\n")
+      : normalizedDraft;
+    await localUpdateMemoMutation.mutateAsync({
+      memo,
+      payload: {
+        contentMarkdown,
+        contentJson: markdownToDoc(contentMarkdown),
+      },
+    });
+  };
+
   const deleteMemoMutation = useMutation({
     mutationFn: async ({ memo, permanent }: { memo: MemoDetail; permanent: boolean }) => {
       await deleteMobileMemos({
@@ -1271,6 +1288,7 @@ export const WorkspaceScreen = ({
         onOpenRevisions={setRevisionMemo}
         onRenameResource={handleRenameResource}
         onAdoptCloudVersion={(memo) => void handleAdoptCloudVersion(memo)}
+        onApplyAiDraft={applyAiDraftToMemo}
         onCopyLocalDraft={(memo) => void handleCopyConflictDraft(memo)}
         onResolveSyncConflict={handleMemoSyncConflict}
         onRetrySync={() => {
@@ -1718,6 +1736,7 @@ const CreateMemoModal = ({
   const imageOperationRef = useRef(imageOperation);
   const createPendingRef = useRef(false);
   const [resourceTarget, setResourceTarget] = useState<MobileResourceTarget | null>(null);
+  const { pickUploadAsset, uploadSourcePicker } = useMobileEditorUploadAsset();
   const targetNotebookId = notebookId || fallbackNotebookId;
   const selectedNotebookName = notebooks.find((notebook) => notebook.id === targetNotebookId)?.name ?? "选择笔记本";
   const titleRef = useRef(title);
@@ -1730,6 +1749,13 @@ const CreateMemoModal = ({
   tagsTextRef.current = tagsText;
   targetNotebookIdRef.current = targetNotebookId;
   imageOperationRef.current = imageOperation;
+
+  const { cancelSelectionAi, requestSelectionAi } = useMobileSelectionAi({
+    client,
+    editorRef,
+    resolvedLocale,
+    titleRef,
+  });
 
   const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const keyboardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2015,13 +2041,7 @@ const CreateMemoModal = ({
   const pickAndUploadImage = async () => {
     let uploadId: string | null = null;
     try {
-      const DocumentPicker = await import("expo-document-picker");
-      const result = await DocumentPicker.getDocumentAsync({
-        copyToCacheDirectory: true,
-        multiple: false,
-        type: "*/*",
-      });
-      const asset = result.canceled ? null : result.assets[0];
+      const asset = await pickUploadAsset();
       if (!asset) {
         return;
       }
@@ -2117,6 +2137,8 @@ const CreateMemoModal = ({
         flushResolverRef.current?.();
         flushResolverRef.current = null;
       }}
+      onAiCancel={cancelSelectionAi}
+      onAiRequest={requestSelectionAi}
       onResourcePress={selectResource}
       onLoadResource={loadEditorResource}
       onPickImage={pickAndUploadImage}
@@ -2129,7 +2151,7 @@ const CreateMemoModal = ({
       locale={resolvedLocale}
       theme={resolvedTheme}
     />
-  ) : null, [baseUrl, draftLoaded, loadEditorResource, resolvedLocale, resolvedTheme, scheduleBodyKeyboard, selectResource]);
+  ) : null, [baseUrl, cancelSelectionAi, draftLoaded, loadEditorResource, requestSelectionAi, resolvedLocale, resolvedTheme, scheduleBodyKeyboard, selectResource]);
 
   return (
     <SafeAreaView edges={["top", "left", "right", "bottom"]} style={styles.createMemoSafeArea}>
@@ -2232,6 +2254,7 @@ const CreateMemoModal = ({
         presentation="overlay"
         visible={templatePickerOpen}
       />
+      {uploadSourcePicker}
     </SafeAreaView>
   );
 };
@@ -2444,6 +2467,7 @@ const RichEditorModal = ({
   const [error, setError] = useState<string | null>(null);
   const [startupMs, setStartupMs] = useState<number | null>(null);
   const [resourceTarget, setResourceTarget] = useState<MobileResourceTarget | null>(null);
+  const { pickUploadAsset, uploadSourcePicker } = useMobileEditorUploadAsset();
   const notebookLabel = notebooks.find((notebook) => notebook.id === notebookId)?.name ?? "未分类";
   const saveLabel = error ? "保存失败" : saving ? "保存中" : uploading ? "上传中" : dirty ? (draftRestored ? "本地草稿" : "未保存") : ready ? "已保存" : "加载中";
   const titleRef = useRef(title);
@@ -2538,6 +2562,12 @@ const RichEditorModal = ({
   };
 
   const flushEditor = () => flushMobileEditor(editorRef, flushResolverRef);
+  const { cancelSelectionAi, requestSelectionAi } = useMobileSelectionAi({
+    client,
+    editorRef,
+    resolvedLocale,
+    titleRef,
+  });
 
   const requestClose = async () => {
     if (savingRef.current || uploadingRef.current) {
@@ -2570,13 +2600,7 @@ const RichEditorModal = ({
       Alert.alert("正在同步新笔记", "首次同步完成后即可上传本地图片；图片链接现在就可以直接粘贴到正文。");
       return;
     }
-    const DocumentPicker = await import("expo-document-picker");
-    const result = await DocumentPicker.getDocumentAsync({
-      copyToCacheDirectory: true,
-      multiple: false,
-      type: "*/*",
-    });
-    const asset = result.canceled ? null : result.assets[0];
+    const asset = await pickUploadAsset();
     if (!asset) {
       return;
     }
@@ -2641,6 +2665,8 @@ const RichEditorModal = ({
           style: styles.richEditorWebView,
         }}
         onChange={persistDraft}
+        onAiCancel={cancelSelectionAi}
+        onAiRequest={requestSelectionAi}
         onResourcePress={selectResource}
         onLoadResource={loadEditorResource}
         onPickImage={pickAndUploadImage}
@@ -2667,7 +2693,7 @@ const RichEditorModal = ({
         theme={resolvedTheme}
       />
     ) : null,
-    [baseUrl, loadEditorResource, memo?.id, resolvedLocale, resolvedTheme, selectResource]
+    [baseUrl, cancelSelectionAi, loadEditorResource, memo?.id, requestSelectionAi, resolvedLocale, resolvedTheme, selectResource]
   );
 
   useEffect(() => {
@@ -2783,6 +2809,7 @@ const RichEditorModal = ({
           onSaveAs={saveResourceAs}
           target={resourceTarget}
         />
+        {uploadSourcePicker}
     </SafeAreaView>
   );
 };

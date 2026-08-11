@@ -113,6 +113,7 @@ import { registerTemplateRoutes } from "./template-routes";
 import { registerAuthRoutes, type UserRow } from "./auth-routes";
 import { registerApiTokenRoutes, type ApiTokenRow } from "./api-token-routes";
 import { registerObjectStorageRoutes } from "./object-storage-routes";
+import { registerAiRoutes } from "./ai-routes";
 import { registerResourceRoutes } from "./resource-routes";
 import { registerSyncRoutes } from "./sync-routes";
 import { registerMemoRoutes } from "./memo-routes";
@@ -321,6 +322,9 @@ app.use("/api/v1/*", async (c, next) => {
 });
 
 registerObjectStorageRoutes(app, {
+  isDemoMode: (...args) => isDemoMode(...args),
+});
+registerAiRoutes(app, {
   isDemoMode: (...args) => isDemoMode(...args),
 });
 
@@ -955,6 +959,24 @@ const callMcpTool = async (
           sortOrder: typeof args.sortOrder === "number" && Number.isInteger(args.sortOrder) ? args.sortOrder : undefined,
         },
         actor
+      );
+
+      return { notebook };
+    }
+    case "rename_notebook": {
+      assertScope(auth, "write:notebooks");
+      const name = getRequiredString(args.name, "name");
+
+      if (name.length > 80) {
+        throw new AppError("invalid_params", "name must be at most 80 characters", 400);
+      }
+
+      const notebook = await updateNotebookRecord(
+        c.env.storage.db,
+        auth.workspaceId,
+        getRequiredString(args.notebookId, "notebookId"),
+        { name },
+        getAuditActor(c)
       );
 
       return { notebook };

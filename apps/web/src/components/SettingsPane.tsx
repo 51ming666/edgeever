@@ -31,6 +31,7 @@ import { PasswordCard } from "./settings/PasswordCard";
 import { SessionCard } from "./settings/SessionCard";
 import { UserManagementCard } from "./settings/UserManagementCard";
 import { ObjectStorageCard } from "./settings/ObjectStorageCard";
+import { AiModelCard } from "./settings/AiModelCard";
 import { ThemeToggle } from "./ThemeToggle";
 import type { AuthUser } from "@edgeever/shared";
 import { contentEnterMotion } from "@/lib/motion";
@@ -220,8 +221,9 @@ export const SettingsPane = ({
       case "ai":
         return (
           <SettingsGroup>
-            <AdvancedPlayCard />
+            <AiModelCard />
             <McpConfigCard />
+            <AdvancedPlayCard />
           </SettingsGroup>
         );
       case "advanced":

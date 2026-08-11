@@ -1,18 +1,19 @@
 import SwiftUI
 import Pow
+import UIKit
 
 /// Android WorkspaceMemoDetail shell parity (detailHeader*, detailMeta*, detailEditFab).
 struct MemoDetailView: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     let memoId: String
     /// Present editor from the parent `WorkspaceView` (more reliable than cover on a pushed page).
     var onEdit: (String) -> Void = { _ in }
 
     @State private var memo: MemoDetail?
     @State private var showRevisions = false
-    @State private var showShareAlert = false
-    @State private var shareURL: String?
+    @State private var memoSharePayload: MemoSharePayload?
     @State private var error: String?
     @State private var conflictItem: OutboxItem?
     @State private var outboxStatus: OutboxStatus?
@@ -20,8 +21,12 @@ struct MemoDetailView: View {
     @State private var pinPulse = false
     @State private var searchOpen = false
     @State private var searchQuery = ""
+    @State private var searchMatchCount = 0
+    @State private var searchMatchIndex = 0
     @State private var showDeleteConfirm = false
     @State private var showMoreMenu = false
+    @State private var showNoteIdCopied = false
+    @State private var showAiAssistant = false
     @State private var resourceTarget: ResourceTarget?
     @State private var imagePreview: (source: String, alt: String)?
     /// TipTap EditorBundle is ~4MB; keep native text visible until first setContent finishes.
@@ -94,6 +99,19 @@ struct MemoDetailView: View {
             .presentationDetents([.height(360), .medium])
             .presentationDragIndicator(.hidden)
         }
+        .sheet(item: $memoSharePayload) { payload in
+            ActivityShareView(items: [payload.message, payload.url]) { _, _, error in
+                if let error { self.error = error.localizedDescription }
+                memoSharePayload = nil
+            }
+        }
+        .sheet(isPresented: $showAiAssistant) {
+            if let memo {
+                AiAssistantSheet(memo: memo) { draft, mode in
+                    try await applyAiDraft(draft, mode: mode, to: memo)
+                }
+            }
+        }
         .fullScreenCover(isPresented: Binding(
             get: { imagePreview != nil },
             set: { if !$0 { imagePreview = nil } }
@@ -123,6 +141,11 @@ struct MemoDetailView: View {
         ) {
             if let memo {
                 Button(env.preferences.t("编辑", en: "Edit")) { onEdit(memo.id) }
+                if !memo.isDeleted && !isTemporaryMemoId(memo.id) {
+                    Button(env.preferences.t("AI 笔记助手", en: "AI note assistant")) {
+                        showAiAssistant = true
+                    }
+                }
                 Button(
                     memo.isPinned
                         ? env.preferences.t("取消置顶", en: "Unpin")
@@ -136,6 +159,15 @@ struct MemoDetailView: View {
                 Button(env.preferences.t("分享链接", en: "Share link")) {
                     Task { await shareMemo(memo) }
                 }
+                Button(
+                    isTemporaryMemoId(memo.id)
+                        ? env.preferences.t("同步后可复制笔记 ID", en: "Copy note ID after sync")
+                        : env.preferences.t("复制笔记 ID", en: "Copy note ID")
+                ) {
+                    UIPasteboard.general.string = memo.id
+                    showNoteIdCopied = true
+                }
+                .disabled(isTemporaryMemoId(memo.id))
                 Button(env.preferences.t("修订历史", en: "Revisions")) { showRevisions = true }
                 Button(env.preferences.t("删除", en: "Delete"), role: .destructive) {
                     showDeleteConfirm = true
@@ -150,15 +182,13 @@ struct MemoDetailView: View {
         } message: {
             Text(env.preferences.t("笔记将移入回收站。", en: "The note will move to trash."))
         }
-        .alert(env.preferences.t("分享链接", en: "Share link"), isPresented: $showShareAlert) {
-            Button(env.preferences.t("复制", en: "Copy")) {
-                if let shareURL {
-                    UIPasteboard.general.string = shareURL
-                }
-            }
-            Button(env.preferences.t("关闭", en: "Close"), role: .cancel) {}
+        .alert(
+            env.preferences.t("笔记 ID 已复制", en: "Note ID copied"),
+            isPresented: $showNoteIdCopied
+        ) {
+            Button(env.preferences.t("好", en: "OK"), role: .cancel) {}
         } message: {
-            Text(shareURL ?? "")
+            Text(memo?.id ?? memoId)
         }
         // Local SQLite mirror is sync and cheap — load before the first blank ProgressView frame.
         .onAppear {
@@ -180,6 +210,9 @@ struct MemoDetailView: View {
         }
         .onChange(of: memoId) { _, _ in
             bodyReady = false
+            searchQuery = ""
+            searchMatchCount = 0
+            searchMatchIndex = 0
             load()
             refreshSyncStatus()
         }
@@ -244,7 +277,13 @@ struct MemoDetailView: View {
                         label: env.preferences.t("搜索当前笔记", en: "Search in note"),
                         id: DetailMemoChrome.search
                     ) {
-                        withAnimation(Motion.chip) { searchOpen.toggle() }
+                        withAnimation(Motion.chip) {
+                            if searchOpen {
+                                closeSearch()
+                            } else {
+                                searchOpen = true
+                            }
+                        }
                     }
                     headerIconButton(
                         systemImage: "ellipsis",
@@ -421,7 +460,7 @@ struct MemoDetailView: View {
                             .font(.system(size: 16))
                             .foregroundStyle(AppTheme.secondary)
                     }
-                    Text(memo.displayTitle)
+                    Text(localizedTitle(for: memo))
                         .font(.system(size: 24, weight: .bold))
                         .foregroundStyle(AppTheme.title)
                         .lineLimit(4)
@@ -477,9 +516,40 @@ struct MemoDetailView: View {
                         )
                         .font(.system(size: 14))
                         .textFieldStyle(.plain)
+                        .onChange(of: searchQuery) { _, query in
+                            searchMatchIndex = 0
+                            SharedTipTapRuntime.viewer.search(query, index: 0)
+                        }
+                        Text(searchMatchCount == 0 ? "0/0" : "\(searchMatchIndex + 1)/\(searchMatchCount)")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(AppTheme.secondary)
+                            .monospacedDigit()
                         Button {
-                            searchOpen = false
-                            searchQuery = ""
+                            guard searchMatchCount > 0 else { return }
+                            let next = (searchMatchIndex - 1 + searchMatchCount) % searchMatchCount
+                            SharedTipTapRuntime.viewer.search(searchQuery, index: next)
+                        } label: {
+                            Image(systemName: "chevron.up")
+                                .font(.system(size: 12, weight: .bold))
+                                .frame(width: 28, height: 28)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(searchMatchCount == 0)
+                        .accessibilityLabel(env.preferences.t("上一个匹配项", en: "Previous match"))
+                        Button {
+                            guard searchMatchCount > 0 else { return }
+                            let next = (searchMatchIndex + 1) % searchMatchCount
+                            SharedTipTapRuntime.viewer.search(searchQuery, index: next)
+                        } label: {
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 12, weight: .bold))
+                                .frame(width: 28, height: 28)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(searchMatchCount == 0)
+                        .accessibilityLabel(env.preferences.t("下一个匹配项", en: "Next match"))
+                        Button {
+                            closeSearch()
                         } label: {
                             Image(systemName: "xmark")
                                 .font(.system(size: 12, weight: .bold))
@@ -516,12 +586,20 @@ struct MemoDetailView: View {
                     markdown: memo.contentMarkdown,
                     baseURL: env.session.session.flatMap { URL(string: $0.baseUrl) },
                     token: env.session.session?.token,
+                    locale: env.preferences.isEnglish ? "en-US" : "zh-CN",
+                    theme: colorScheme == .dark ? "dark" : "light",
+                    placeholder: env.preferences.t("开始输入…", en: "Start writing…"),
                     onChange: nil,
                     onResourcePress: { target in
                         resourceTarget = target
                     },
                     onImagePreview: { source, alt in
                         imagePreview = (source, alt)
+                    },
+                    onPickImage: nil,
+                    onSearchResult: { count, index in
+                        searchMatchCount = count
+                        searchMatchIndex = index
                     },
                     onBodyReady: {
                         bodyReady = true
@@ -620,8 +698,25 @@ struct MemoDetailView: View {
 
     private func copyLocalDraft() async {
         guard let memo else { return }
-        let text = [memo.displayTitle, memo.contentMarkdown].filter { !$0.isEmpty }.joined(separator: "\n\n")
+        let text = [localizedTitle(for: memo), memo.contentMarkdown].filter { !$0.isEmpty }.joined(separator: "\n\n")
         UIPasteboard.general.string = text
+    }
+
+    private func isTemporaryMemoId(_ id: String) -> Bool {
+        id.hasPrefix("local:") || id.hasPrefix("local_")
+    }
+
+    private func closeSearch() {
+        searchOpen = false
+        searchQuery = ""
+        searchMatchCount = 0
+        searchMatchIndex = 0
+        SharedTipTapRuntime.viewer.search("", index: 0)
+    }
+
+    private func localizedTitle(for memo: MemoDetail) -> String {
+        let title = memo.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return title.isEmpty ? env.preferences.t("无标题笔记", en: "Untitled note") : title
     }
 
     private func togglePin(_ memo: MemoDetail) async {
@@ -645,12 +740,67 @@ struct MemoDetailView: View {
         }
     }
 
+    private func applyAiDraft(
+        _ draft: String,
+        mode: AiDraftApplyMode,
+        to sourceMemo: MemoDetail
+    ) async throws {
+        guard let scope = env.session.dataScope else {
+            throw APIError(
+                status: -1,
+                code: "session_unavailable",
+                message: env.preferences.t("登录状态已失效，请重新登录。", en: "Your session has expired. Sign in again.")
+            )
+        }
+        let normalizedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedDraft.isEmpty else { return }
+        let currentContent = sourceMemo.contentMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        let contentMarkdown = mode == .append && !currentContent.isEmpty
+            ? "\(currentContent)\n\n\(normalizedDraft)"
+            : normalizedDraft
+
+        let editSession = try await env.session.client.createMemoEditSession(memoId: sourceMemo.id)
+        guard
+            editSession.baseRevision == sourceMemo.revision,
+            editSession.baseContentHash == sourceMemo.contentHash
+        else {
+            throw APIError(
+                status: 409,
+                code: "revision_conflict",
+                message: env.preferences.t(
+                    "笔记已在其他设备更新，请刷新后重新生成。",
+                    en: "This note changed on another device. Refresh it and generate again."
+                )
+            )
+        }
+
+        let updated = try await env.session.client.updateMemo(
+            id: sourceMemo.id,
+            expectedRevision: sourceMemo.revision,
+            expectedContentHash: sourceMemo.contentHash,
+            editSessionId: editSession.id,
+            notebookId: nil,
+            title: nil,
+            isPinned: nil,
+            contentMarkdown: contentMarkdown,
+            contentJson: nil,
+            tags: nil
+        )
+        try env.mirror.upsertMemo(scope: scope, memo: updated)
+        memo = updated
+        refreshSyncStatus()
+    }
+
     private func shareMemo(_ memo: MemoDetail) async {
         do {
             let share = try await env.session.client.createMemoShare(memoId: memo.id)
             let base = env.session.session?.baseUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/")) ?? ""
-            shareURL = "\(base)/share/\(share.token)"
-            showShareAlert = true
+            guard let url = URL(string: "\(base)/share/\(share.token)") else { return }
+            let title = memo.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let displayTitle = title?.isEmpty == false
+                ? title!
+                : env.preferences.t("无标题笔记", en: "Untitled note")
+            memoSharePayload = MemoSharePayload(message: "\(displayTitle)\n\(url.absoluteString)", url: url)
         } catch {
             self.error = error.localizedDescription
         }
@@ -671,6 +821,12 @@ struct MemoDetailView: View {
             self.error = error.localizedDescription
         }
     }
+}
+
+private struct MemoSharePayload: Identifiable {
+    let id = UUID()
+    let message: String
+    let url: URL
 }
 
 // MARK: - String helper

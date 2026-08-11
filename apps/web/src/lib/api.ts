@@ -18,6 +18,11 @@ import type {
   ResourceListItem,
   ResourceStorageSummary,
   ObjectStorageSettings,
+  AiSettings,
+  AiDiscoveredModel,
+  AiProvider,
+  AiAction,
+  AiStreamEvent,
   PublicMemoShare,
   TagSummary,
   TiptapDoc,
@@ -62,6 +67,22 @@ type ListLoginDeviceSessionsResponse = { sessions: LoginDeviceSession[] };
 type ObjectStorageSettingsResponse = {
   settings: ObjectStorageSettings;
   externalSettings?: ObjectStorageSettings | null;
+};
+export type AiProviderCreatePayload = {
+  provider: AiProvider;
+  displayName: string;
+  baseUrl: string;
+  apiKey: string;
+  isEnabled: boolean;
+  initialModelId?: string;
+};
+
+export type AiProviderUpdatePayload = {
+  provider: AiProvider;
+  displayName: string;
+  baseUrl: string;
+  apiKey?: string;
+  isEnabled: boolean;
 };
 
 const WEB_DEVICE_ID_STORAGE_KEY = "edgeever.web.device-id";
@@ -428,6 +449,99 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  getAiSettings: () => request<AiSettings>("/api/v1/ai/settings"),
+
+  createAiProvider: (payload: AiProviderCreatePayload) =>
+    request<AiSettings>("/api/v1/ai/providers", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  updateAiProvider: (providerConfigId: string, payload: AiProviderUpdatePayload) =>
+    request<AiSettings>(`/api/v1/ai/providers/${encodeURIComponent(providerConfigId)}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
+  deleteAiProvider: (providerConfigId: string) =>
+    request<AiSettings>(`/api/v1/ai/providers/${encodeURIComponent(providerConfigId)}`, {
+      method: "DELETE",
+    }),
+
+  testAiProvider: (providerConfigId: string, payload: {
+    modelId: string;
+    provider?: AiProvider;
+    baseUrl?: string;
+    apiKey?: string;
+  }) =>
+    request<{ ok: true; response: string }>(`/api/v1/ai/providers/${encodeURIComponent(providerConfigId)}/test`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  discoverAiProviderModels: (providerConfigId: string) =>
+    request<{ models: AiDiscoveredModel[] }>(`/api/v1/ai/providers/${encodeURIComponent(providerConfigId)}/discover-models`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+
+  addAiModel: (providerConfigId: string, payload: { modelId: string; displayName?: string }) =>
+    request<AiSettings>(`/api/v1/ai/providers/${encodeURIComponent(providerConfigId)}/models`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  deleteAiModel: (providerConfigId: string, modelConfigId: string) =>
+    request<AiSettings>(`/api/v1/ai/providers/${encodeURIComponent(providerConfigId)}/models/${encodeURIComponent(modelConfigId)}`, {
+      method: "DELETE",
+    }),
+
+  updateDefaultAiModel: (modelConfigId: string | null) =>
+    request<AiSettings>("/api/v1/ai/default-model", {
+      method: "PUT",
+      body: JSON.stringify({ modelConfigId }),
+    }),
+
+  streamAiGeneration: async (
+    payload: { action: AiAction; title: string; contentMarkdown: string; targetLanguage?: string; instruction?: string },
+    options: { signal?: AbortSignal; onEvent: (event: AiStreamEvent) => void },
+  ) => {
+    const headers = new Headers({ "Content-Type": "application/json" });
+    const sessionToken = typeof window !== "undefined" && window.edgeeverDesktop?.isAvailable
+      ? getDesktopSessionToken()
+      : undefined;
+    if (sessionToken) headers.set("Authorization", `Bearer ${sessionToken}`);
+    const response = await fetch(`${getConfiguredDesktopApiBaseUrl()}/api/v1/ai/generate`, {
+      method: "POST",
+      credentials: "include",
+      headers,
+      body: JSON.stringify(payload),
+      signal: options.signal,
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => null) as { error?: { code?: string; message?: string } } | null;
+      throw new ApiRequestError(body?.error?.message || response.statusText, response.status, body?.error?.code);
+    }
+    if (!response.body) throw new ApiRequestError("Streaming response is unavailable", 502, "ai_stream_unavailable");
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+      for (const frame of frames) {
+        const data = frame.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
+        if (data) options.onEvent(JSON.parse(data) as AiStreamEvent);
+      }
+      if (done) break;
+    }
+    const trailingData = buffer.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
+    if (trailingData) options.onEvent(JSON.parse(trailingData) as AiStreamEvent);
+  },
 
   updateNotebook: (notebookId: string, payload: { name?: string; parentId?: string | null; sortOrder?: number }) =>
     request<NotebookResponse>(`/api/v1/notebooks/${notebookId}`, {

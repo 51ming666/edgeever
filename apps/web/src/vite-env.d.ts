@@ -7,6 +7,7 @@ declare const __EDGEEVER_APP_VERSION__: string;
 declare const __EDGEEVER_RELEASED_AT__: string;
 declare const __EDGEEVER_DEPLOYMENT_TRIGGER__: string;
 declare const __EDGEEVER_DEPLOYMENT_METHOD__: string;
+declare const __EDGEEVER_DEVELOPMENT_PROFILE__: "" | "local" | "demo";
 
 interface EdgeEverDesktopBridge {
   isAvailable: boolean;
@@ -14,6 +15,7 @@ interface EdgeEverDesktopBridge {
   setApiBaseUrl(value: string): Promise<string>;
   getSessionToken(): string;
   copyText(value: string): Promise<boolean>;
+  copyHtml(html: string, plainText: string): Promise<boolean>;
   setSessionToken(value: string): Promise<{ stored: boolean }>;
   clearSessionToken(): Promise<{ stored: false }>;
   sidecarStatus(): Promise<{ available: boolean; path: string; scope: string }>;
