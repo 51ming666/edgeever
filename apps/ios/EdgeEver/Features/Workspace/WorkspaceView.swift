@@ -5,6 +5,7 @@ import Pow
 /// Wrapper so `fullScreenCover(item:)` can present edit for a memo id.
 struct EditingMemoRoute: Identifiable, Hashable {
     let id: String
+    let initialFocus: MemoEditInitialFocus
 }
 
 struct WorkspaceView: View {
@@ -14,6 +15,7 @@ struct WorkspaceView: View {
     @State private var showSettings = false
     @State private var showNewNote = false
     @State private var createSeed: CreateMemoSeed?
+    @State private var createSharedImages: [ShareHandoffStore.SharedImage] = []
     @State private var showCreateChoice = false
     @State private var showTemplatePicker = false
     @State private var createLongPressConsumed = false
@@ -68,9 +70,9 @@ struct WorkspaceView: View {
             .ignoresSafeArea(.container, edges: .bottom)
             .navigationBarHidden(true)
             .navigationDestination(for: String.self) { memoId in
-                MemoDetailView(memoId: memoId) { editId in
+                MemoDetailView(memoId: memoId) { editId, initialFocus in
                     // 1) Show edit cover over detail.
-                    editingMemo = EditingMemoRoute(id: editId)
+                    editingMemo = EditingMemoRoute(id: editId, initialFocus: initialFocus)
                     // 2) After the cover is up, silently drop detail so the underlay is the list.
                     //    Dismissing edit then reveals list only — no detail flash.
                     DispatchQueue.main.async {
@@ -93,6 +95,7 @@ struct WorkspaceView: View {
                         notebookId: store.selectedNotebookId ?? store.notebooks.first?.id ?? "",
                         seed: createSeed
                     ),
+                    initialSharedImages: createSharedImages,
                     onCreateFinished: { memoId in
                         // Prime list + bounce **before** dismiss so settle runs under/with the cover,
                         // not half a second after the list is already static.
@@ -103,6 +106,7 @@ struct WorkspaceView: View {
                 )
                 .onDisappear {
                     createSeed = nil
+                    createSharedImages = []
                     // Safety refresh if create finished without callback (e.g. swipe-dismiss empty).
                     store.reload(env: env)
                 }
@@ -123,6 +127,7 @@ struct WorkspaceView: View {
             .fullScreenCover(item: $editingMemo) { route in
                 MemoEditView(
                     mode: .edit(memoId: route.id),
+                    initialFocus: route.initialFocus,
                     onLeaveToList: {
                         // Pop detail first (no animation) while cover still covers the stack,
                         // then dismiss the cover so the user only ever sees the list.
@@ -145,6 +150,20 @@ struct WorkspaceView: View {
             }
             .sheet(isPresented: $store.showActions) {
                 ListActionsSheet(store: store)
+            }
+            .sheet(isPresented: $store.showTagFilterPicker) {
+                MemoTagPickerSheet(
+                    selectedTags: store.selectedTag.map { [$0] } ?? [],
+                    allowCreate: false,
+                    maxSelections: 1,
+                    closeOnSelection: true,
+                    title: "按标签筛选",
+                    titleEN: "Filter by tag"
+                ) { tags in
+                    store.selectTag(tags.first)
+                    store.reload(env: env)
+                }
+                .presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showMoveSheet) {
                 MoveNotebookSheet(notebooks: store.notebooks) { notebookId in
@@ -271,20 +290,36 @@ struct WorkspaceView: View {
 
             HStack(alignment: .center) {
                 Button {
-                    store.showNotebookPicker = true
+                    if store.selectedTag != nil {
+                        clearTagFilter()
+                    } else {
+                        store.showNotebookPicker = true
+                    }
                 } label: {
                     HStack(spacing: 4) {
-                        Text(store.activeNotebook?.name ?? env.preferences.t("全部笔记", en: "All notes"))
+                        if store.selectedTag != nil {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(AppTheme.secondary)
+                        }
+                        Text(store.selectedTag.map { "#\($0)" } ?? store.activeNotebook?.name ?? env.preferences.t("全部笔记", en: "All notes"))
                             .font(AppTheme.notebookTitleFont)
                             .foregroundStyle(AppTheme.title)
                             .lineLimit(1)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(AppTheme.secondary)
+                        if store.selectedTag == nil {
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(AppTheme.secondary)
+                        }
                     }
                     .frame(minHeight: MobileUIMetrics.compactControlHeight)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(
+                    store.selectedTag == nil
+                        ? env.preferences.t("切换笔记本", en: "Switch notebook")
+                        : env.preferences.t("返回笔记列表", en: "Back to notes")
+                )
                 Spacer(minLength: 8)
                 Button {
                     store.showActions = true
@@ -348,32 +383,21 @@ struct WorkspaceView: View {
                     store.reload(env: env)
                 }
                 filterChip(
-                    active: store.filter == .tagged,
-                    systemImage: "tag",
-                    label: env.preferences.t("有标签", en: "Tagged")
+                    active: store.selectedTag != nil,
+                    systemImage: store.selectedTag == nil ? "tag" : "tag.fill",
+                    label: store.selectedTag.map { "#\($0)" }
+                        ?? env.preferences.t("按标签筛选", en: "Filter by tag")
                 ) {
-                    withAnimation(Motion.chip) {
-                        store.toggleFilter(.tagged)
-                    }
-                    store.reload(env: env)
-                }
-                filterChip(
-                    active: store.filter == .untagged,
-                    systemImage: "tag.fill",
-                    label: env.preferences.t("无标签", en: "Untagged")
-                ) {
-                    withAnimation(Motion.chip) {
-                        store.toggleFilter(.untagged)
-                    }
-                    store.reload(env: env)
+                    store.showTagFilterPicker = true
                 }
             }
             .edgeEverSelectionFeedback(store.filter)
+            .animation(Motion.chip, value: store.selectedTag)
             .onChange(of: store.searchText) { _, _ in
                 store.scheduleSearch(env: env)
             }
 
-            if searchActive || store.filter != .all {
+            if searchActive || store.filter != .all || store.selectedTag != nil {
                 constraintBar
                     .padding(.top, 12)
                     .transition(.move(edge: .top).combined(with: .opacity))
@@ -386,7 +410,7 @@ struct WorkspaceView: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(AppTheme.border).frame(height: 1)
         }
-        .animation(Motion.search, value: searchActive || store.filter != .all)
+        .animation(Motion.search, value: searchActive || store.filter != .all || store.selectedTag != nil)
     }
 
     private var constraintBar: some View {
@@ -422,8 +446,12 @@ struct WorkspaceView: View {
                     .foregroundStyle(AppTheme.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Button(env.preferences.t("重置", en: "Reset")) {
-                    store.filter = .all
-                    store.reload(env: env)
+                    if store.selectedTag != nil {
+                        clearTagFilter()
+                    } else {
+                        store.filter = .all
+                        store.reload(env: env)
+                    }
                 }
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(AppTheme.slate)
@@ -449,6 +477,7 @@ struct WorkspaceView: View {
     }
 
     private var filterLabel: String {
+        if let selectedTag = store.selectedTag { return "#\(selectedTag)" }
         switch store.filter {
         case .pinned: return "置顶"
         case .tagged: return "有标签"
@@ -458,12 +487,18 @@ struct WorkspaceView: View {
     }
 
     private var filterLabelEN: String {
+        if let selectedTag = store.selectedTag { return "#\(selectedTag)" }
         switch store.filter {
         case .pinned: return "Pinned"
         case .tagged: return "Tagged"
         case .untagged: return "Untagged"
         case .all: return "All"
         }
+    }
+
+    private func clearTagFilter() {
+        store.clearTagFilter()
+        store.reload(env: env)
     }
 
     private func filterChip(active: Bool, systemImage: String, label: String, action: @escaping () -> Void) -> some View {
@@ -511,6 +546,9 @@ struct WorkspaceView: View {
                 ) {
                     withAnimation(Motion.chip) {
                         path = NavigationPath()
+                    }
+                    if store.selectedTag != nil {
+                        clearTagFilter()
                     }
                 }
 
@@ -669,9 +707,13 @@ struct WorkspaceView: View {
         .animation(Motion.search, value: env.bootstrapProgress != nil)
     }
 
-    private func openCreateNote(seed: CreateMemoSeed? = nil) {
+    private func openCreateNote(
+        seed: CreateMemoSeed? = nil,
+        sharedImages: [ShareHandoffStore.SharedImage] = []
+    ) {
         guard !store.notebooks.isEmpty else { return }
         createSeed = seed
+        createSharedImages = sharedImages
         showNewNote = true
     }
 
@@ -683,6 +725,28 @@ struct WorkspaceView: View {
     private func consumeShare() {
         let payloads = env.shareHandoff.consumePending()
         guard !payloads.isEmpty else { return }
+        let sharedImages = env.shareHandoff.sharedImages(from: payloads)
+        if !sharedImages.isEmpty {
+            guard !store.notebooks.isEmpty else {
+                sharedImages.forEach(env.shareHandoff.removeImage)
+                shareImportAlert = ShareImportAlert(
+                    title: env.preferences.t("无法保存图片", en: "Unable to save images"),
+                    message: env.preferences.t("请先在 EdgeEver 中创建一个笔记本。", en: "Create a notebook in EdgeEver first.")
+                )
+                return
+            }
+            openCreateNote(
+                seed: CreateMemoSeed(
+                    title: sharedImages.count == 1
+                        ? env.preferences.t("分享的图片", en: "Shared image")
+                        : env.preferences.t("分享的图片（\(sharedImages.count) 张）", en: "Shared images (\(sharedImages.count))"),
+                    contentMarkdown: "",
+                    tagsText: ""
+                ),
+                sharedImages: sharedImages
+            )
+            return
+        }
         guard let sourceURL = WebClipper.sharedWebURL(from: payloads) else {
             shareImportAlert = ShareImportAlert(
                 title: env.preferences.t("无法剪藏", en: "Unable to clip"),

@@ -176,7 +176,7 @@ export const NotebookTreeItem = ({
             className={cn(
               "group relative flex h-9 items-center gap-1 rounded-md px-2 text-sm lg:text-[13px] transition-all duration-200 select-none",
               selected
-                ? "bg-slate-100 font-medium text-slate-950"
+                ? "edgeever-workspace-selection font-medium text-slate-950"
                 : hasSelectedDescendant
                   ? "bg-slate-50 text-slate-900 hover:bg-slate-100"
                   : "text-slate-700 hover:bg-slate-50",
@@ -262,7 +262,7 @@ export const NotebookTreeItem = ({
                 }
               }}
             >
-              <NotebookIcon className={cn("h-4 w-4 shrink-0 transition-colors duration-200", selected || hasSelectedDescendant ? "text-slate-700" : "text-slate-500")} />
+              <NotebookIcon className={cn("h-4 w-4 shrink-0 transition-colors duration-200", selected ? "text-emerald-600 " : hasSelectedDescendant ? "text-slate-700" : "text-slate-500")} />
               <span
                 className={cn(
                   "truncate font-medium transition-colors duration-200",
@@ -274,7 +274,7 @@ export const NotebookTreeItem = ({
               <span
                 className={cn(
                   "shrink-0 tabular-nums text-xs font-normal transition-colors duration-200",
-                  "text-slate-400 group-hover:text-slate-500"
+                  selected ? "text-slate-600 font-medium" : "text-slate-400 group-hover:text-slate-500"
                 )}
                 aria-hidden="true"
               >
@@ -299,7 +299,7 @@ export const NotebookTreeItem = ({
                   <MoreHorizontal className="h-3.5 w-3.5" />
                 </button>
               {actionsOpen && (
-                <m.div className="absolute right-0 top-8 z-50 w-44 overflow-hidden rounded-md border border-slate-200 bg-white p-1 text-slate-950 shadow-lg" {...contentEnterMotion}>
+                <m.div className="absolute right-0 top-8 z-50 w-44 overflow-hidden rounded-md border border-slate-200 bg-card p-1 text-slate-950 shadow-lg" {...contentEnterMotion}>
                   <button
                     className="flex h-9 w-full items-center gap-2 rounded-sm px-2 text-left text-sm outline-none hover:bg-slate-100"
                     type="button"
@@ -352,7 +352,7 @@ export const NotebookTreeItem = ({
             )}
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-48 bg-white border border-slate-200 rounded-md py-1 shadow-md">
+        <ContextMenuContent className="w-48 bg-card border border-slate-200 rounded-md py-1 shadow-md">
           <ContextMenuItem
             className="flex h-9 items-center gap-2 px-3 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer outline-none"
             onClick={() => onCreateNotebook(node.id)}
