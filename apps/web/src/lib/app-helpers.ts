@@ -34,7 +34,7 @@ export type ShortcutBinding = {
   alt: boolean;
 };
 export type ShortcutSettings = Record<ShortcutAction, ShortcutBinding>;
-export type MobileBottomNavItem = "home" | "search" | "templates" | "settings" | "companion";
+export type MobileBottomNavItem = "home" | "search" | "templates" | "settings";
 export type MemoContextMenuState = { memo: MemoSummary; x: number; y: number };
 export type MemoDocumentAction =
   | "share"
@@ -140,6 +140,7 @@ export const EDITOR_PHONE_PREVIEW_FOLLOW_STORAGE_KEY = "edgeever.editor.phonePre
 export const MEMO_LIST_DENSITY_STORAGE_KEY = "edgeever.memoListDensity";
 export const MEMO_LIST_WIDTH_STORAGE_KEY = "edgeever.memoListWidth";
 export const NOTEBOOK_SORT_STORAGE_KEY = "edgeever.notebookSort";
+export const NOTEBOOK_TREE_COLLAPSED_IDS_STORAGE_KEY = "edgeever.notebookTreeCollapsedIds:v1";
 export const SHORTCUT_SETTINGS_STORAGE_KEY = "edgeever.shortcutSettings";
 export const DEFAULT_MEMO_LIST_WIDTH_PX = 360;
 export const MIN_MEMO_LIST_WIDTH_PX = 300;
@@ -173,72 +174,20 @@ export const getMemoFilterOptions = (t: TFunction): Array<{ value: MemoFilterMod
 
 export const getShortcutActionOptions = (
   t: TFunction
-): Array<{ value: ShortcutAction; label: string; description: string }> => [
-  {
-    value: "createMemo",
-    label: t("shortcuts.actions.createMemo.label"),
-    description: t("shortcuts.actions.createMemo.description"),
-  },
-  {
-    value: "createNotebook",
-    label: t("shortcuts.actions.createNotebook.label"),
-    description: t("shortcuts.actions.createNotebook.description"),
-  },
-  {
-    value: "focusSearch",
-    label: t("shortcuts.actions.focusSearch.label"),
-    description: t("shortcuts.actions.focusSearch.description"),
-  },
-  {
-    value: "focusGlobalSearch",
-    label: t("shortcuts.actions.focusGlobalSearch.label"),
-    description: t("shortcuts.actions.focusGlobalSearch.description"),
-  },
-  {
-    value: "focusReplace",
-    label: t("shortcuts.actions.focusReplace.label"),
-    description: t("shortcuts.actions.focusReplace.description"),
-  },
-  {
-    value: "openQuickSwitcher",
-    label: t("shortcuts.actions.openQuickSwitcher.label"),
-    description: t("shortcuts.actions.openQuickSwitcher.description"),
-  },
-  {
-    value: "openPreviousMemo",
-    label: t("shortcuts.actions.openPreviousMemo.label"),
-    description: t("shortcuts.actions.openPreviousMemo.description"),
-  },
-  {
-    value: "openNextMemo",
-    label: t("shortcuts.actions.openNextMemo.label"),
-    description: t("shortcuts.actions.openNextMemo.description"),
-  },
-  {
-    value: "openAiAssistant",
-    label: t("shortcuts.actions.openAiAssistant.label"),
-    description: t("shortcuts.actions.openAiAssistant.description"),
-  },
-  {
-    value: "saveAndSync",
-    label: t("shortcuts.actions.saveAndSync.label"),
-    description: t("shortcuts.actions.saveAndSync.description"),
-  },
-  {
-    value: "toggleReadingProtection",
-    label: t("shortcuts.actions.toggleReadingProtection.label"),
-    description: t("shortcuts.actions.toggleReadingProtection.description"),
-  },
-  {
-    value: "toggleEditorMode",
-    label: t("shortcuts.actions.toggleEditorMode.label"),
-    description: t("shortcuts.actions.toggleEditorMode.description"),
-  },
-  {
-    value: "toggleOutline",
-    label: t("shortcuts.actions.toggleOutline.label"),
-    description: t("shortcuts.actions.toggleOutline.description"),
-  },
+): Array<{ value: ShortcutAction; label: string }> => [
+  { value: "createMemo", label: t("shortcuts.actions.createMemo.label") },
+  { value: "createNotebook", label: t("shortcuts.actions.createNotebook.label") },
+  { value: "focusSearch", label: t("shortcuts.actions.focusSearch.label") },
+  { value: "focusGlobalSearch", label: t("shortcuts.actions.focusGlobalSearch.label") },
+  { value: "focusReplace", label: t("shortcuts.actions.focusReplace.label") },
+  { value: "openQuickSwitcher", label: t("shortcuts.actions.openQuickSwitcher.label") },
+  { value: "openPreviousMemo", label: t("shortcuts.actions.openPreviousMemo.label") },
+  { value: "openNextMemo", label: t("shortcuts.actions.openNextMemo.label") },
+  { value: "openAiAssistant", label: t("shortcuts.actions.openAiAssistant.label") },
+  { value: "saveAndSync", label: t("shortcuts.actions.saveAndSync.label") },
+  { value: "toggleReadingProtection", label: t("shortcuts.actions.toggleReadingProtection.label") },
+  { value: "toggleEditorMode", label: t("shortcuts.actions.toggleEditorMode.label") },
+  { value: "toggleOutline", label: t("shortcuts.actions.toggleOutline.label") },
 ];
 
 export const DEFAULT_SHORTCUT_SETTINGS: ShortcutSettings = {
@@ -291,20 +240,26 @@ export const getEditableMemoTitle = (title: string | null | undefined) =>
 
 export const getMemoTitle = (title: string | null | undefined) => title?.trim() || DEFAULT_MEMO_TITLE;
 
+export const EDITOR_HEADING_LEVELS = [1, 2, 3, 4, 5, 6] as const;
+export type EditorHeadingLevel = (typeof EDITOR_HEADING_LEVELS)[number];
+
+export const headingBlockValue = (level: EditorHeadingLevel) => `heading-${level}` as const;
+
+export const parseHeadingBlockValue = (value: string): EditorHeadingLevel | null => {
+  const match = /^heading-([1-6])$/.exec(value);
+  return match ? Number(match[1]) as EditorHeadingLevel : null;
+};
+
 export const getActiveBlockValue = (editor: any): string => {
   if (!editor || editor.isDestroyed || !editor.extensionManager) {
     return "paragraph";
   }
 
   try {
-    if (editor.isActive("heading", { level: 1 })) {
-      return "heading-1";
-    }
-    if (editor.isActive("heading", { level: 2 })) {
-      return "heading-2";
-    }
-    if (editor.isActive("heading", { level: 3 })) {
-      return "heading-3";
+    for (const level of EDITOR_HEADING_LEVELS) {
+      if (editor.isActive("heading", { level })) {
+        return headingBlockValue(level);
+      }
     }
   } catch {
     return "paragraph";
@@ -376,11 +331,14 @@ export const writeDesktopReadingProtectionPreference = (enabled: boolean) => {
   }
 };
 
-export const readEditorOutlineCollapsedPreference = () => {
+export const readEditorOutlineCollapsedPreference = (options?: { defaultCollapsed?: boolean }) => {
   try {
-    return window.localStorage.getItem(EDITOR_OUTLINE_COLLAPSED_STORAGE_KEY) !== "false";
+    const value = window.localStorage.getItem(EDITOR_OUTLINE_COLLAPSED_STORAGE_KEY);
+    if (value === "false") return false;
+    if (value === "true") return true;
+    return options?.defaultCollapsed ?? true;
   } catch {
-    return true;
+    return options?.defaultCollapsed ?? true;
   }
 };
 
@@ -505,6 +463,28 @@ export const readNotebookSortPreference = (): NotebookSortMode => {
 export const writeNotebookSortPreference = (sortMode: NotebookSortMode) => {
   try {
     window.localStorage.setItem(NOTEBOOK_SORT_STORAGE_KEY, sortMode);
+  } catch {
+    // Local storage can be unavailable in private or restricted browser contexts.
+  }
+};
+
+export const readNotebookTreeCollapsedIdsPreference = () => {
+  try {
+    const value: unknown = JSON.parse(window.localStorage.getItem(NOTEBOOK_TREE_COLLAPSED_IDS_STORAGE_KEY) ?? "[]");
+
+    if (!Array.isArray(value)) {
+      return new Set<string>();
+    }
+
+    return new Set(value.filter((notebookId): notebookId is string => typeof notebookId === "string" && notebookId.length > 0));
+  } catch {
+    return new Set<string>();
+  }
+};
+
+export const writeNotebookTreeCollapsedIdsPreference = (notebookIds: Iterable<string>) => {
+  try {
+    window.localStorage.setItem(NOTEBOOK_TREE_COLLAPSED_IDS_STORAGE_KEY, JSON.stringify(Array.from(new Set(notebookIds))));
   } catch {
     // Local storage can be unavailable in private or restricted browser contexts.
   }

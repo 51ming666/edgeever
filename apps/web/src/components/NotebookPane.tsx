@@ -11,12 +11,15 @@ import {
   LayoutGrid,
   LayoutList,
   LayoutTemplate,
+  GitFork,
+  Component,
+  PieChart,
+  Table2,
   BookPlus,
-  Boxes,
   ArrowDownWideNarrow,
   Notebook as NotebookIcon,
-  Tags,
-  Archive,
+  Tag,
+  Paperclip,
   Trash2,
   KeyRound,
   LogOut,
@@ -29,11 +32,9 @@ import {
   ExternalLink,
   RotateCcw,
   FileText,
-  Network,
   Workflow,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -48,7 +49,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { NotebookTreeItem } from "./NotebookTreeItem";
 import { cn } from "@/lib/utils";
-import type { Notebook, AuthUser, DiagramKind } from "@edgeever/shared";
+import { BETA_BADGE_CLASSNAME } from "@/lib/workspace-ui";
+import type { Notebook, AuthUser, NoteCreateKind } from "@edgeever/shared";
 import type { NotebookNode, NotebookDropPosition, NotebookSortMode } from "@/lib/app-helpers";
 import type { SyncQueueSummary } from "@/lib/sync-queue";
 import {
@@ -56,7 +58,9 @@ import {
   getNotebookSortOptions,
   getNotebookSortComparator,
   hasEdgeEverDragData,
+  readNotebookTreeCollapsedIdsPreference,
   readNotebookSortPreference,
+  writeNotebookTreeCollapsedIdsPreference,
   writeNotebookSortPreference,
 } from "@/lib/app-helpers";
 import type { EdgeEverRepository } from "@/lib/repository";
@@ -99,15 +103,6 @@ const BrandIcon = ({ path, color, className }: { path: string; color?: string; c
   </svg>
 );
 
-const DiagramBetaBadge = () => (
-  <Badge
-    variant="outline"
-    className="ml-auto border-emerald-200/80 bg-emerald-50 px-1.5 py-0 text-[10px] leading-4 tracking-wide text-emerald-700   "
-  >
-    Beta
-  </Badge>
-);
-
 const AppStoreIcon = () => (
   <svg className="h-3.5 w-3.5 shrink-0 rounded-[2px] bg-[#0D96F6] p-[1.5px] text-white" viewBox="0 0 24 24" aria-hidden="true">
     <path fill="currentColor" d="m8.809 14.92l6.11-11.037c.084-.152.168-.302.244-.459c.069-.142.127-.285.165-.44c.08-.326.058-.666-.066-.977a1.5 1.5 0 0 0-.62-.735a1.42 1.42 0 0 0-.922-.193c-.32.043-.613.194-.844.43c-.11.11-.2.235-.283.368c-.092.146-.175.298-.259.45l-.386.697l-.387-.698c-.084-.151-.167-.303-.259-.449a2.2 2.2 0 0 0-.283-.369a1.45 1.45 0 0 0-.844-.429a1.42 1.42 0 0 0-.921.193a1.5 1.5 0 0 0-.62.735a1.6 1.6 0 0 0-.066.977c.038.155.096.298.164.44c.076.157.16.307.244.459l1.248 2.254l-4.862 8.782H2.03c-.168 0-.336 0-.503.01c-.152.009-.3.028-.448.071c-.31.09-.582.28-.778.548A1.58 1.58 0 0 0 .3 17.404c.197.268.468.457.779.548c.148.043.296.062.448.071c.167.01.335.01.503.01h13.097a2 2 0 0 0 .1-.27c.415-1.416-.616-2.844-2.035-2.844zm-5.696 3.622l-.792 1.5c-.082.156-.165.31-.239.471a2.4 2.4 0 0 0-.16.452a1.7 1.7 0 0 0 .064 1.003c.121.318.334.583.607.755s.589.242.901.197c.314-.044.6-.198.826-.44c.108-.115.196-.242.278-.378c.09-.15.171-.306.253-.462L6 19.464c-.09-.15-.947-1.47-2.887-.922m20.586-3.006a1.47 1.47 0 0 0-.779-.54a2 2 0 0 0-.448-.071c-.168-.01-.335-.01-.503-.01h-3.321L14.258 7.1a4.06 4.06 0 0 0-1.076 2.198a4.64 4.64 0 0 0 .546 3l5.274 9.393c.084.15.167.3.259.444c.084.13.174.253.283.364c.231.232.524.38.845.423s.643-.024.922-.19a1.5 1.5 0 0 0 .621-.726c.125-.307.146-.642.066-.964a2.2 2.2 0 0 0-.165-.434c-.075-.155-.16-.303-.244-.453l-1.216-2.166h1.596c.168 0 .335 0 .503-.009c.152-.009.3-.028.448-.07a1.47 1.47 0 0 0 .78-.541a1.54 1.54 0 0 0 .3-.916a1.54 1.54 0 0 0-.3-.916" />
@@ -145,7 +140,7 @@ const SidebarNavButton = ({
 }) => (
   <button
     className={cn(
-      "flex h-9 w-full items-center gap-3 rounded-md px-3 text-left text-sm font-medium leading-none transition-all duration-200",
+      "flex h-9 w-full items-center gap-3 rounded-md px-3 text-left text-xs font-medium leading-none transition-all duration-200",
       tone === "warning"
         ? "text-amber-700 hover:bg-amber-50/70 hover:text-amber-800"
         : active
@@ -156,7 +151,7 @@ const SidebarNavButton = ({
     aria-current={active ? "page" : undefined}
     onClick={onClick}
   >
-    <span className={cn("flex h-4 w-4 shrink-0 items-center justify-center transition-colors duration-200", active && "text-emerald-600 ")}>{icon}</span>
+    <span className="flex h-4 w-4 shrink-0 items-center justify-center transition-colors duration-200">{icon}</span>
     <span className="min-w-0 flex-1 truncate">{label}</span>
   </button>
 );
@@ -178,7 +173,7 @@ const SidebarShortcutButton = ({
     <button
       className={cn(
         "flex h-9 min-w-0 w-full items-center justify-center rounded-md px-0 text-xs font-medium transition-colors duration-200",
-        active ? "edgeever-workspace-selection text-emerald-600 " : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+        active ? "edgeever-workspace-selection text-slate-950" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
       )}
       type="button"
       aria-current={active ? "page" : undefined}
@@ -215,7 +210,7 @@ const SidebarTrashShortcut = ({
     <div className="group relative min-w-0">
       <SidebarShortcutButton active={active} icon={<Trash2 className="h-4 w-4" />} label={t("notebookPane.trash")} onClick={onOpenTrash} showTooltip={false} />
       {!active && (
-        <div className="pointer-events-none absolute right-0 top-full z-20 w-max pt-1 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100">
+        <div className="pointer-events-none absolute right-0 top-full z-20 w-max pt-1 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
           <button
             className="relative flex h-8 items-center gap-1.5 rounded-md border border-rose-200 bg-card px-2 text-xs font-medium text-rose-700 shadow-lg shadow-slate-900/10 transition-colors before:absolute before:-top-1 before:right-16 before:h-2 before:w-2 before:rotate-45 before:border-l before:border-t before:border-rose-200 before:bg-card hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70"
             type="button"
@@ -258,7 +253,7 @@ const SidebarCollapseButton = ({
           <button
             type="button"
             className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-md text-slate-600 transition-colors duration-150 hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/70",
+              "flex h-8 w-8 items-center justify-center rounded-md text-slate-600 transition-colors duration-150 hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20",
               className
             )}
             aria-label={label}
@@ -297,8 +292,8 @@ const SidebarRailButton = ({
         aria-label={label}
         onClick={onClick}
         className={cn(
-          "flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 transition-colors duration-150 hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/70 disabled:cursor-not-allowed disabled:opacity-50",
-          active && "bg-emerald-50 text-emerald-600"
+          "flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 transition-colors duration-150 hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20 disabled:cursor-not-allowed disabled:opacity-50",
+          active && "edgeever-workspace-selection text-slate-950"
         )}
       >
         {icon}
@@ -308,29 +303,36 @@ const SidebarRailButton = ({
   </Tooltip>
 );
 
-const CreateMemoTypeItems = ({ onCreateMemo }: { onCreateMemo: (kind?: DiagramKind) => void }) => {
+const CreateMemoTypeItems = ({ onCreateMemo }: { onCreateMemo: (kind?: NoteCreateKind) => void }) => {
   const { t } = useTranslation();
 
   return (
     <>
-      <DropdownMenuItem onSelect={() => onCreateMemo()}>
-        <FileText className="h-4 w-4" />
-        {t("diagram.normalNote")}
+      <DropdownMenuItem className="gap-2 text-xs leading-5" onSelect={() => onCreateMemo()}>
+        <FileText className="h-4 w-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{t("diagram.normalNote")}</span>
       </DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => onCreateMemo("mind-map")}>
-        <Network className="h-4 w-4" />
-        {t("diagram.mindMap")}
-        <DiagramBetaBadge />
+      <DropdownMenuItem className="gap-2 text-xs leading-5" onSelect={() => onCreateMemo("mind-map")}>
+        <GitFork className="h-4 w-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{t("diagram.mindMap")}</span>
       </DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => onCreateMemo("flowchart")}>
-        <Workflow className="h-4 w-4" />
-        {t("diagram.flowchart")}
-        <DiagramBetaBadge />
+      <DropdownMenuItem className="gap-2 text-xs leading-5" onSelect={() => onCreateMemo("flowchart")}>
+        <Workflow className="h-4 w-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{t("diagram.flowchart")}</span>
       </DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => onCreateMemo("architecture")}>
-        <Boxes className="h-4 w-4" />
-        {t("diagram.architecture")}
-        <DiagramBetaBadge />
+      <DropdownMenuItem className="gap-2 text-xs leading-5" onSelect={() => onCreateMemo("architecture")}>
+        <Component className="h-4 w-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{t("diagram.architecture")}</span>
+      </DropdownMenuItem>
+      <DropdownMenuItem className="gap-2 text-xs leading-5" onSelect={() => onCreateMemo("infographic")}>
+        <PieChart className="h-4 w-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{t("infographic.name")}</span>
+        <span className={BETA_BADGE_CLASSNAME}>Beta</span>
+      </DropdownMenuItem>
+      <DropdownMenuItem className="gap-2 text-xs leading-5" onSelect={() => onCreateMemo("table")}>
+        <Table2 className="h-4 w-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{t("structuredTable.name")}</span>
+        <span className={BETA_BADGE_CLASSNAME}>Beta</span>
       </DropdownMenuItem>
     </>
   );
@@ -389,7 +391,7 @@ const SyncStatusBar = ({
 
   return (
     <div
-      className={cn("mb-3 flex min-h-10 items-center gap-2 rounded-md border px-3 py-2 transition-all duration-200", statusClassName)}
+      className={cn("flex h-8 items-center gap-2 rounded-md border px-3 transition-all duration-200", statusClassName)}
       role="status"
       aria-live="polite"
     >
@@ -410,7 +412,7 @@ const SyncStatusBar = ({
         )}
       </m.span>
       <button
-        className="min-w-0 flex-1 truncate text-left text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
+        className="min-w-0 flex-1 truncate text-left text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/15"
         type="button"
         onClick={() => setDetailsOpen(true)}
       >
@@ -418,7 +420,7 @@ const SyncStatusBar = ({
       </button>
       {summary.conflict > 0 && (
         <button
-          className="shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold text-amber-800 transition-colors hover:bg-card/70 disabled:opacity-50"
+          className="shrink-0 rounded-md px-2 py-0.5 text-xs font-semibold leading-none text-amber-800 transition-colors hover:bg-card/70 disabled:opacity-50"
           type="button"
           disabled={!isOnline || isSyncing}
           onClick={onDiscardConflicts}
@@ -431,7 +433,7 @@ const SyncStatusBar = ({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md hover:bg-card/70 disabled:opacity-50 transition-colors"
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md hover:bg-card/70 disabled:opacity-50 transition-colors"
                 type="button"
                 aria-label={t("notebookPane.syncNow")}
                 disabled={!isOnline || isSyncing}
@@ -473,7 +475,6 @@ export const NotebookPane = ({
   onOpenTags,
   onOpenAssets,
   onOpenTemplates,
-  companionActive,
   pluginHost,
   onOpenPluginManager,
   onOpenTrash,
@@ -512,13 +513,12 @@ export const NotebookPane = ({
   onOpenTags: () => void;
   onOpenAssets: () => void;
   onOpenTemplates: () => void;
-  companionActive: boolean;
   pluginHost: EdgeEverPluginHost;
   onOpenPluginManager: () => void;
   onOpenTrash: () => void;
   onEmptyTrash: () => void;
   onOpenSettings: () => void;
-  onCreateMemo: (kind?: DiagramKind) => void;
+  onCreateMemo: (kind?: NoteCreateKind) => void;
   canCreateMemo: boolean;
   isCreatingMemo: boolean;
   syncSummary: SyncQueueSummary;
@@ -544,6 +544,7 @@ export const NotebookPane = ({
   const notebookDragScrollFrameRef = useRef<number | null>(null);
   const [expandSiblingsRequest, setExpandSiblingsRequest] = useState<{ parentId: string | null; token: number } | null>(null);
   const [notebookSortMode, setNotebookSortMode] = useState<NotebookSortMode>(readNotebookSortPreference);
+  const [collapsedNotebookIds, setCollapsedNotebookIds] = useState<Set<string>>(readNotebookTreeCollapsedIdsPreference);
 
   const handleMoveNotebook = useCallback((notebookId: string, targetNotebookId: string, position: NotebookDropPosition) => {
     setNotebookSortMode("custom");
@@ -621,6 +622,26 @@ export const NotebookPane = ({
   }, [notebookSortMode]);
 
   useEffect(() => {
+    writeNotebookTreeCollapsedIdsPreference(collapsedNotebookIds);
+  }, [collapsedNotebookIds]);
+
+  const handleNotebookOpenChange = useCallback((notebookId: string, open: boolean) => {
+    setCollapsedNotebookIds((current) => {
+      if (current.has(notebookId) === !open) {
+        return current;
+      }
+
+      const next = new Set(current);
+      if (open) {
+        next.delete(notebookId);
+      } else {
+        next.add(notebookId);
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
     if (!selectedNotebookId) {
       return;
     }
@@ -654,21 +675,21 @@ export const NotebookPane = ({
 
       <TooltipProvider delayDuration={0} skipDelayDuration={0}>
         <nav className="grid shrink-0 grid-cols-2 gap-0.5 border-b border-slate-100 px-2 py-1.5 sm:grid-cols-3 lg:grid-cols-5" aria-label={t("notebookPane.secondaryEntries")}>
-          <SidebarShortcutButton icon={<Tags className="h-4 w-4" />} label={t("mobileSheets.tags")} onClick={onOpenTags} />
-          <SidebarShortcutButton icon={<Archive className="h-4 w-4" />} label={t("mobileSheets.assets")} onClick={onOpenAssets} />
+          <SidebarShortcutButton icon={<Tag className="h-4 w-4" />} label={t("mobileSheets.tags")} onClick={onOpenTags} />
+          <SidebarShortcutButton icon={<Paperclip className="h-4 w-4" />} label={t("mobileSheets.assets")} onClick={onOpenAssets} />
           {showTemplateEntry && <SidebarShortcutButton icon={<LayoutTemplate className="h-4 w-4" />} label={t("nav.templates")} onClick={onOpenTemplates} />}
           <PluginToolbarMenu
             host={pluginHost}
             onManage={onOpenPluginManager}
             align="start"
-            className="h-9 w-full rounded-md px-0 text-slate-600"
+            className="h-9 w-full rounded-md px-0 text-slate-600 hover:bg-slate-50 hover:text-slate-950"
           />
           <SidebarTrashShortcut active={view === "trash"} onOpenTrash={onOpenTrash} onEmptyTrash={onEmptyTrash} />
         </nav>
       </TooltipProvider>
 
       {window.edgeeverDesktop?.isAvailable && (
-        <div className="px-3 pt-2">
+        <div className="px-3 pt-1.5">
           <SyncStatusBar
             summary={syncSummary}
             isOnline={isOnline}
@@ -680,29 +701,29 @@ export const NotebookPane = ({
         </div>
       )}
 
-      <div className="hidden shrink-0 px-3 pb-4 pt-4 lg:block">
-        <div className="flex overflow-hidden rounded-2xl border border-slate-200/90 bg-card shadow-[0_5px_16px_rgba(15,23,42,0.06)] transition-shadow duration-200 hover:shadow-[0_7px_20px_rgba(15,23,42,0.09)]">
+      <div className="hidden shrink-0 px-3 pb-2 pt-2 lg:block">
+        <div className="edgeever-create-memo-split flex overflow-hidden rounded-2xl border border-slate-200/90 bg-card shadow-[0_5px_16px_rgba(15,23,42,0.06)] transition-shadow duration-200 hover:shadow-[0_7px_20px_rgba(15,23,42,0.09)]">
           <button
-            className="group flex h-12 min-w-0 flex-1 items-center gap-3 px-3 text-left transition-colors duration-150 hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+            className="group flex h-12 max-w-[calc(100%-2.25rem)] shrink-0 items-center gap-2 px-2.5 text-left transition-colors duration-150 hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
             type="button"
             aria-label={t("notebookPane.newMemo")}
             onClick={() => onCreateMemo()}
             disabled={!canCreateMemo || isCreatingMemo}
           >
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white shadow-[0_5px_12px_rgb(var(--brand-green-rgb)/0.22)] transition-transform duration-150 group-hover:scale-[1.03] group-focus-visible:ring-2 group-focus-visible:ring-emerald-500/70 group-focus-visible:ring-offset-2">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white shadow-[0_5px_12px_rgb(var(--brand-green-rgb)/0.22)] transition-transform duration-150 group-hover:scale-[1.03] group-focus-visible:ring-2 group-focus-visible:ring-slate-900/20 group-focus-visible:ring-offset-2">
               <Plus className="h-5 w-5" />
             </span>
-            <span className="min-w-0 truncate text-sm font-semibold text-slate-950">{t("notebookPane.newMemo")}</span>
+            <span className="whitespace-nowrap text-sm font-semibold text-slate-950">{t("notebookPane.newMemo")}</span>
           </button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
-                className="group relative flex h-12 w-[6.25rem] shrink-0 items-center justify-center gap-1 px-2 text-xs font-medium text-slate-600 transition-colors before:absolute before:inset-y-2.5 before:left-0 before:w-px before:bg-slate-200 hover:bg-emerald-50/70 hover:text-emerald-700 focus-visible:bg-emerald-50/70 focus-visible:text-emerald-700 focus-visible:outline-none data-[state=open]:bg-emerald-50 data-[state=open]:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="group relative flex h-12 min-w-9 flex-1 items-center justify-center gap-0.5 px-1.5 text-xs font-medium text-slate-600 transition-colors before:absolute before:inset-y-2.5 before:left-0 before:w-px before:bg-[var(--workspace-divider)] hover:bg-workspace-hover hover:text-slate-950 focus-visible:bg-workspace-hover focus-visible:text-slate-950 focus-visible:outline-none data-[state=open]:bg-workspace-selection data-[state=open]:text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
                 type="button"
                 aria-label={t("diagram.createType")}
                 disabled={!canCreateMemo || isCreatingMemo}
               >
-                <span className="truncate">{t("diagram.moreTypes")}</span>
+                <span className="edgeever-create-memo-split__more-label min-w-0 truncate">{t("diagram.moreTypes")}</span>
                 <ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform duration-150 group-data-[state=open]:rotate-180" aria-hidden="true" />
               </button>
             </DropdownMenuTrigger>
@@ -727,9 +748,8 @@ export const NotebookPane = ({
       >
         {showTemplateEntry && (
           <button
-            className="mb-3 hidden h-8 w-full items-center justify-start gap-2 rounded-md px-3 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50 lg:flex"
+            className="mb-1 hidden h-8 w-full items-center justify-start gap-2 rounded-md px-3 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50 lg:flex"
             type="button"
-            title={t("templates.useTemplate")}
             onClick={onOpenTemplates}
             disabled={isCreatingMemo}
           >
@@ -738,9 +758,9 @@ export const NotebookPane = ({
           </button>
         )}
 
-        <nav className="mb-3 space-y-1" aria-label={t("companion.primaryNavigation")}>
+        <nav className="mb-1 space-y-1" aria-label={t("notebookPane.entries")}>
           <SidebarNavButton
-            active={!companionActive && view === "notebook" && selectedNotebookId === null}
+            active={view === "notebook" && selectedNotebookId === null}
             icon={<LayoutList className="h-4 w-4" />}
             label={t("notebookPane.allMemos")}
             onClick={onBackToList}
@@ -810,7 +830,7 @@ export const NotebookPane = ({
                 key={node.id}
                 node={node}
                 depth={0}
-                selectedNotebookId={companionActive ? null : selectedNotebookId}
+                selectedNotebookId={selectedNotebookId}
                 onSelect={onSelect}
                 onCreateNotebook={onCreateNotebook}
                 onRenameNotebook={onRenameNotebook}
@@ -818,6 +838,8 @@ export const NotebookPane = ({
                 onMoveNotebook={handleMoveNotebook}
                 onMoveMemos={onMoveMemos}
                 onDragScroll={handleNotebookScrollDragOver}
+                collapsedNotebookIds={collapsedNotebookIds}
+                onOpenChange={handleNotebookOpenChange}
                 expandSiblingsRequest={expandSiblingsRequest}
                 onExpandSiblings={handleExpandNotebookSiblings}
               />
@@ -836,7 +858,7 @@ export const NotebookPane = ({
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500 text-white shadow-[0_3px_8px_rgb(var(--brand-green-rgb)/0.24)] transition-transform duration-150 hover:scale-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/70 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500 text-white shadow-[0_3px_8px_rgb(var(--brand-green-rgb)/0.24)] transition-transform duration-150 hover:scale-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     aria-label={t("notebookPane.newMemo")}
                     onClick={() => onCreateMemo()}
                     disabled={!canCreateMemo || isCreatingMemo}
@@ -852,7 +874,7 @@ export const NotebookPane = ({
                     <DropdownMenuTrigger asChild>
                       <button
                         type="button"
-                        className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/70 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20 disabled:cursor-not-allowed disabled:opacity-50"
                         aria-label={t("diagram.createType")}
                         disabled={!canCreateMemo || isCreatingMemo}
                       >
@@ -860,7 +882,7 @@ export const NotebookPane = ({
                       </button>
                     </DropdownMenuTrigger>
                   </TooltipTrigger>
-                  <TooltipContent side="right">{t("diagram.moreTypes")}</TooltipContent>
+                  <TooltipContent side="right">{t("diagram.createType")}</TooltipContent>
                 </Tooltip>
                 <DropdownMenuContent align="start" side="right" sideOffset={8} className="w-52">
                   <CreateMemoTypeItems onCreateMemo={onCreateMemo} />
@@ -868,21 +890,21 @@ export const NotebookPane = ({
               </DropdownMenu>
             </div>
 
-            <nav className="mt-3 flex min-h-0 flex-1 flex-col items-center gap-1" aria-label={t("companion.primaryNavigation")}>
+            <nav className="mt-3 flex min-h-0 flex-1 flex-col items-center gap-1" aria-label={t("notebookPane.entries")}>
               <SidebarRailButton
-                active={!companionActive && view === "notebook" && selectedNotebookId === null}
+                active={view === "notebook" && selectedNotebookId === null}
                 icon={<LayoutList className="h-4 w-4" />}
                 label={t("notebookPane.allMemos")}
                 onClick={onBackToList}
               />
               <SidebarRailButton
-                active={!companionActive && view === "notebook" && selectedNotebookId !== null}
+                active={view === "notebook" && selectedNotebookId !== null}
                 icon={<NotebookIcon className="h-4 w-4" />}
                 label={t("notebookPane.notebooks")}
                 onClick={onToggleCollapsed}
               />
-              <SidebarRailButton icon={<Tags className="h-4 w-4" />} label={t("mobileSheets.tags")} onClick={onOpenTags} />
-              <SidebarRailButton icon={<Archive className="h-4 w-4" />} label={t("mobileSheets.assets")} onClick={onOpenAssets} />
+              <SidebarRailButton icon={<Tag className="h-4 w-4" />} label={t("mobileSheets.tags")} onClick={onOpenTags} />
+              <SidebarRailButton icon={<Paperclip className="h-4 w-4" />} label={t("mobileSheets.assets")} onClick={onOpenAssets} />
               {showTemplateEntry ? (
                 <SidebarRailButton icon={<LayoutTemplate className="h-4 w-4" />} label={t("nav.templates")} onClick={onOpenTemplates} />
               ) : null}
@@ -912,16 +934,16 @@ export const NotebookPane = ({
           </div>
         </TooltipProvider>
       ) : (
-      <footer className="edgeever-workspace-sidebar-footer border-t border-slate-200 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur-sm">
+      <footer className="edgeever-workspace-sidebar-footer border-t border-[var(--workspace-divider)] px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2">
         <div className="space-y-1">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
-                className="flex h-8 w-full items-center gap-3 rounded-md px-3 text-left text-sm font-medium leading-none text-slate-700 transition-colors duration-200 hover:bg-slate-50 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 data-[state=open]:bg-slate-100 data-[state=open]:text-slate-950    "
+                className="flex h-9 w-full items-center gap-3 rounded-md px-3 text-left text-xs font-medium leading-5 text-slate-700 transition-colors duration-200 hover:bg-workspace-hover hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20 data-[state=open]:bg-workspace-hover data-[state=open]:text-slate-950"
                 type="button"
                 aria-label={t("pwa.sidebarDownloadsTitle") || "下载 EdgeEver 客户端与浏览器插件"}
               >
-                <span className="flex h-4 w-4 shrink-0 items-center justify-center text-emerald-600 ">
+                <span className="flex h-4 w-4 shrink-0 items-center justify-center">
                   <Download className="h-4 w-4" />
                 </span>
                 <span className="min-w-0 flex-1 truncate">{t("pwa.sidebarDownloads") || "下载客户端"}</span>
@@ -933,8 +955,9 @@ export const NotebookPane = ({
               sideOffset={6}
               className="w-64 rounded-lg border border-slate-200 bg-card p-1.5 shadow-xl  "
             >
+              <TooltipProvider delayDuration={0} skipDelayDuration={0}>
               <DropdownMenuGroup>
-                <DropdownMenuLabel className="px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-slate-400 ">
+                <DropdownMenuLabel className="px-2 py-1 text-xs font-medium uppercase tracking-wider text-slate-400 ">
                   {t("pwa.sidebarGroupApps") || "客户端应用"}
                 </DropdownMenuLabel>
                 <DropdownMenuItem asChild>
@@ -951,55 +974,65 @@ export const NotebookPane = ({
                       <span className="truncate font-medium">{t("pwa.sidebarMac") || "macOS"}</span>
                     </div>
                     <div className="flex shrink-0 items-center gap-1 text-slate-400 group-hover:text-slate-600 ">
-                      <span className="text-[11px]">DMG</span>
+                      <span className="text-xs">DMG</span>
                       <ExternalLink className="h-3.5 w-3.5" />
                     </div>
                   </a>
                 </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <a
-                    href={DESKTOP_DOWNLOAD_URL}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label={`${t("pwa.sidebarLinux")} ${t("pwa.sidebarLinuxBadge")}`}
-                    className="group flex cursor-pointer items-center justify-between gap-2.5 rounded-md px-2 py-1.5 text-sm text-slate-700 outline-none transition-colors hover:bg-slate-100 hover:text-slate-900 focus:bg-slate-100 focus:text-slate-900   "
-                  >
-                    <div className="flex min-w-0 items-center gap-2.5">
-                      <BrandIconContainer>
-                        <BrandIcon path={LINUX_ICON_PATH} className="h-4 w-4" />
-                      </BrandIconContainer>
-                      <span className="truncate font-medium">{t("pwa.sidebarLinux") || "Linux"}</span>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1 text-amber-700 ">
-                      <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold ">
-                        {t("pwa.sidebarLinuxBadge") || "Preview"}
-                      </span>
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </div>
-                  </a>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <a
-                    href={DESKTOP_DOWNLOAD_URL}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label={`${t("pwa.sidebarWindows")} ${t("pwa.sidebarWindowsBadge")}`}
-                    className="group flex cursor-pointer items-center justify-between gap-2.5 rounded-md px-2 py-1.5 text-sm text-slate-700 outline-none transition-colors hover:bg-slate-100 hover:text-slate-900 focus:bg-slate-100 focus:text-slate-900   "
-                  >
-                    <div className="flex min-w-0 items-center gap-2.5">
-                      <BrandIconContainer>
-                        <BrandIcon path={WINDOWS_ICON_PATH} color="#0078D4" />
-                      </BrandIconContainer>
-                      <span className="truncate font-medium">{t("pwa.sidebarWindows") || "Windows"}</span>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1 text-amber-700 ">
-                      <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold ">
-                        {t("pwa.sidebarWindowsBadge") || "Preview"}
-                      </span>
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </div>
-                  </a>
-                </DropdownMenuItem>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DropdownMenuItem asChild>
+                      <a
+                        href={DESKTOP_DOWNLOAD_URL}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-label={`${t("pwa.sidebarLinux")}: ${t("pwa.sidebarLinuxAvailability")}`}
+                        className="group flex cursor-pointer items-center justify-between gap-2.5 rounded-md px-2 py-1.5 text-sm text-slate-700 outline-none transition-colors hover:bg-slate-100 hover:text-slate-900 focus:bg-slate-100 focus:text-slate-900   "
+                      >
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <BrandIconContainer>
+                            <BrandIcon path={LINUX_ICON_PATH} className="h-4 w-4" />
+                          </BrandIconContainer>
+                          <span className="truncate font-medium">{t("pwa.sidebarLinux") || "Linux"}</span>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1 text-slate-400 group-hover:text-slate-600 ">
+                          <span className="text-xs">AppImage</span>
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </div>
+                      </a>
+                    </DropdownMenuItem>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-xs whitespace-normal">
+                    {t("pwa.sidebarLinuxAvailability")}
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DropdownMenuItem asChild>
+                      <a
+                        href={DESKTOP_DOWNLOAD_URL}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-label={`${t("pwa.sidebarWindows")}: ${t("pwa.sidebarWindowsAvailability")}`}
+                        className="group flex cursor-pointer items-center justify-between gap-2.5 rounded-md px-2 py-1.5 text-sm text-slate-700 outline-none transition-colors hover:bg-slate-100 hover:text-slate-900 focus:bg-slate-100 focus:text-slate-900   "
+                      >
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <BrandIconContainer>
+                            <BrandIcon path={WINDOWS_ICON_PATH} color="#0078D4" />
+                          </BrandIconContainer>
+                          <span className="truncate font-medium">{t("pwa.sidebarWindows") || "Windows"}</span>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1 text-slate-400 group-hover:text-slate-600 ">
+                          <span className="text-xs">EXE</span>
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </div>
+                      </a>
+                    </DropdownMenuItem>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-xs whitespace-normal">
+                    {t("pwa.sidebarWindowsAvailability")}
+                  </TooltipContent>
+                </Tooltip>
                 <DropdownMenuItem asChild>
                   <a
                     href={ANDROID_PLAY_URL}
@@ -1015,7 +1048,7 @@ export const NotebookPane = ({
                       <span className="truncate font-medium">{t("pwa.sidebarAndroid") || "Android"}</span>
                     </div>
                     <div className="flex shrink-0 items-center gap-1 text-slate-400 group-hover:text-slate-600 ">
-                      <span className="text-[11px]">{t("pwa.sidebarAndroidGooglePlay") || "Google Play"}</span>
+                      <span className="text-xs">{t("pwa.sidebarAndroidGooglePlay") || "Google Play"}</span>
                       <ExternalLink className="h-3.5 w-3.5" />
                     </div>
                   </a>
@@ -1029,12 +1062,12 @@ export const NotebookPane = ({
                   >
                     <div className="flex min-w-0 items-center gap-2.5">
                       <BrandIconContainer>
-                        <Download className="h-3.5 w-3.5 text-emerald-600 " />
+                        <Download className="h-3.5 w-3.5 text-slate-700" />
                       </BrandIconContainer>
                       <span className="truncate font-medium">{t("pwa.sidebarAndroidApk") || "APK 下载"}</span>
                     </div>
                     <div className="flex shrink-0 items-center gap-1 text-slate-400 group-hover:text-slate-600 ">
-                      <span className="text-[11px]">Releases</span>
+                      <span className="text-xs">Releases</span>
                       <ExternalLink className="h-3.5 w-3.5" />
                     </div>
                   </a>
@@ -1052,12 +1085,12 @@ export const NotebookPane = ({
                         <AppStoreIcon />
                       </BrandIconContainer>
                       <span className="truncate font-medium">{t("pwa.sidebarIos") || "iOS"}</span>
-                      <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500  ">
+                      <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500  ">
                         {t("pwa.sidebarIosRegionBadge") || "非大陆区"}
                       </span>
                     </div>
                     <div className="flex shrink-0 items-center gap-1 text-slate-400 group-hover:text-slate-600 ">
-                      <span className="text-[11px]">{t("pwa.sidebarIosBadge") || "App Store"}</span>
+                      <span className="text-xs">{t("pwa.sidebarIosBadge") || "App Store"}</span>
                       <ExternalLink className="h-3.5 w-3.5" />
                     </div>
                   </a>
@@ -1065,7 +1098,7 @@ export const NotebookPane = ({
               </DropdownMenuGroup>
               <DropdownMenuSeparator className="my-1 bg-slate-100 " />
               <DropdownMenuGroup>
-                <DropdownMenuLabel className="px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-slate-400 ">
+                <DropdownMenuLabel className="px-2 py-1 text-xs font-medium uppercase tracking-wider text-slate-400 ">
                   {t("pwa.sidebarGroupClippers") || "浏览器剪藏插件"}
                 </DropdownMenuLabel>
                 <DropdownMenuItem asChild>
@@ -1085,7 +1118,7 @@ export const NotebookPane = ({
                       <span className="truncate font-medium">{t("pwa.sidebarChromeEdge") || "Chrome / Edge"}</span>
                     </div>
                     <div className="flex shrink-0 items-center gap-1 text-slate-400 group-hover:text-slate-600 ">
-                      <span className="text-[11px]">{t("pwa.sidebarWebStoreBadge") || "扩展商店"}</span>
+                      <span className="text-xs">{t("pwa.sidebarWebStoreBadge") || "扩展商店"}</span>
                       <ExternalLink className="h-3.5 w-3.5" />
                     </div>
                   </a>
@@ -1104,18 +1137,19 @@ export const NotebookPane = ({
                       <span className="truncate font-medium">{t("pwa.sidebarFirefox") || "Firefox"}</span>
                     </div>
                     <div className="flex shrink-0 items-center gap-1 text-slate-400 group-hover:text-slate-600 ">
-                      <span className="text-[11px]">{t("pwa.sidebarAddonsBadge") || "附加组件"}</span>
+                      <span className="text-xs">{t("pwa.sidebarAddonsBadge") || "附加组件"}</span>
                       <ExternalLink className="h-3.5 w-3.5" />
                     </div>
                   </a>
                 </DropdownMenuItem>
               </DropdownMenuGroup>
+              </TooltipProvider>
             </DropdownMenuContent>
           </DropdownMenu>
           <div className="flex items-center gap-1">
             <button
               onClick={onOpenSettings}
-              className="flex h-8 min-w-0 flex-1 items-center gap-3 rounded-md px-3 text-left text-sm font-medium leading-none text-slate-700 transition-colors duration-200 hover:bg-slate-50 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/70"
+              className="flex h-9 min-w-0 flex-1 items-center gap-3 rounded-md px-3 text-left text-xs font-medium leading-5 text-slate-700 transition-colors duration-200 hover:bg-workspace-hover hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/70"
               type="button"
               aria-label={t("notebookPane.profile")}
             >

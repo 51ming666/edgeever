@@ -5,10 +5,7 @@ import { Graph } from "@antv/x6";
 import Image from "@tiptap/extension-image";
 import CodeBlock from "@tiptap/extension-code-block";
 import Placeholder from "@tiptap/extension-placeholder";
-import { TaskItem, TaskList } from "@tiptap/extension-list";
-import { TableKit } from "@tiptap/extension-table";
 import { EditorContent, Extension, useEditor, useEditorState, type Editor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
 import { EdgeEverLink } from "@edgeever/shared/editor-link";
 import * as Clipboard from "expo-clipboard";
 import {
@@ -30,7 +27,9 @@ import {
   isAiSelectionSnapshotCurrent,
   markdownToDoc,
   MEMO_CONTENT_STYLE,
-  MergeDivider,
+  createEdgeEverDocumentExtensions,
+  DETAILS_EDITOR_CSS,
+  wrapDetailsContentHtml,
   NativeAttachmentMetadata,
   normalizeAiSelectionReplacement,
   prepareNativeEditorContent,
@@ -38,6 +37,8 @@ import {
   getImageReferrerPolicy,
   ImageGallery,
   getResourceIdFromUrl,
+  DIAGRAM_CANVAS_DARK,
+  DIAGRAM_CANVAS_LIGHT,
   diagramDocumentToX6Cells,
   attachDiagramReader,
   MIND_MAP_CONNECTOR_NAME,
@@ -54,8 +55,9 @@ import {
 } from "@edgeever/shared";
 import { createEdgeEverMathematics } from "@edgeever/shared/mathematics";
 import {
-  DEFAULT_IMAGE_WIDTH_PERCENT,
+  NEW_IMAGE_WIDTH_PERCENT,
   IMAGE_WIDTH_PRESETS,
+  PHONE_IMAGE_FILL_CSS,
   clampImageWidth,
   parseImageWidth,
 } from "@edgeever/shared/image-display";
@@ -139,7 +141,7 @@ type LocalTiptapEditorSharedProps = {
   onSearchResult?: (count: number, index: number, query: string) => Promise<void>;
   onImageExportEvent?: (payloadJson: string) => Promise<void>;
   ref: Ref<LocalTiptapEditorRef>;
-  locale: "zh-CN" | "en-US";
+  locale: "zh-CN" | "en-US" | "ja";
   theme: "light" | "dark";
   /** Live-switchable. The same DomWebView stays mounted across viewer → editor. */
   mode?: "editor" | "viewer";
@@ -450,7 +452,7 @@ const ReadOnlyX6Diagram = ({
   theme,
 }: {
   diagram: DiagramDocument;
-  locale: "zh-CN" | "en-US";
+  locale: "zh-CN" | "en-US" | "ja";
   theme: "light" | "dark";
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -498,7 +500,7 @@ const ReadOnlyX6Diagram = ({
     };
   }, [diagram, theme, locale]);
 
-  const title = locale === "en-US"
+  const title = locale !== "zh-CN"
     ? diagram.kind === "mind-map" ? "Mind map" : diagram.kind === "architecture" ? "Architecture diagram" : "Flowchart"
     : diagram.kind === "mind-map" ? "思维导图" : diagram.kind === "architecture" ? "架构图" : "流程图";
   return (
@@ -769,22 +771,22 @@ function LocalTiptapEditorImpl(props: LocalTiptapEditorProps) {
     // the Android bridge retry raced each other and could leave the WebView stuck.
     autofocus: false,
     extensions: [
-      StarterKit.configure({ codeBlock: false, link: false }),
+      ...createEdgeEverDocumentExtensions({
+        mathematics: createEdgeEverMathematics(),
+        starterKit: { codeBlock: false, link: false },
+        image: protectedImageExtension,
+        gallery: ImageGallery.extend({
+          addNodeView() { return createNativeImageGalleryView(() => props.locale); },
+        }),
+        pdf: false,
+        file: false,
+        pluginEmbed: false,
+        table: { table: { renderWrapper: true } },
+      }),
       EdgeEverLink.configure({ openOnClick: false }),
       NativeAttachmentMetadata,
-      TaskList,
-      TaskItem.configure({ nested: true }),
-      MergeDivider,
-      ...createEdgeEverMathematics(),
       mermaidCodeBlockExtension,
-      ImageGallery.extend({
-        addNodeView() { return createNativeImageGalleryView(() => props.locale); },
-      }),
-      protectedImageExtension,
       searchHighlightExtension,
-      TableKit.configure({
-        table: { renderWrapper: true },
-      }),
       ...createNativeUnsupportedContentExtensions(),
       Placeholder.configure({
         placeholder: () => isViewerRef.current ? "" : getMobileEditorPlaceholder(props.locale),
@@ -798,6 +800,7 @@ function LocalTiptapEditorImpl(props: LocalTiptapEditorProps) {
       attributes: getMobileEditorInputAttributes(
         isViewer ? "edgeever-editor-content edgeever-viewer-content" : "edgeever-editor-content"
       ),
+      transformPastedHTML: (html) => wrapDetailsContentHtml(html),
       handleDOMEvents: {
         // Intercept attachment anchors before ProseMirror's later click phase so
         // the embedded file:// WebView never follows relative resource URLs.
@@ -931,7 +934,7 @@ function LocalTiptapEditorImpl(props: LocalTiptapEditorProps) {
     insertImageUploadPlaceholder(
       editor,
       createMobileImageUploadPlaceholderSource(uploadIdValue),
-      props.locale === "en-US" ? "Uploading image…" : "图片上传中…",
+      props.locale !== "zh-CN" ? "Uploading image…" : "图片上传中…",
       previewDataUrlValue,
       pendingImageSelectionRef.current
     );
@@ -981,7 +984,7 @@ function LocalTiptapEditorImpl(props: LocalTiptapEditorProps) {
       type: "paragraph",
       content: [{
         type: "text",
-        text: `${props.locale === "en-US" ? "Attachment: " : "附件："}${filenameValue}`,
+        text: `${props.locale !== "zh-CN" ? "Attachment: " : "附件："}${filenameValue}`,
         marks: [{
           type: "link",
           attrs: {
@@ -1023,7 +1026,7 @@ function LocalTiptapEditorImpl(props: LocalTiptapEditorProps) {
     editor.view.dispatch(editor.state.tr.replaceWith(
       range.from,
       range.to,
-      editor.schema.text(`${props.locale === "en-US" ? "Attachment: " : "附件："}${filenameValue}`, [linkMark])
+      editor.schema.text(`${props.locale !== "zh-CN" ? "Attachment: " : "附件："}${filenameValue}`, [linkMark])
     ));
   }, [editor, props.locale]);
 
@@ -1149,7 +1152,7 @@ function LocalTiptapEditorImpl(props: LocalTiptapEditorProps) {
         ...current,
         generating: false,
         requestId: null,
-        error: requestError instanceof Error ? requestError.message : (props.locale === "en-US" ? "AI generation failed." : "AI 生成失败。"),
+        error: requestError instanceof Error ? requestError.message : (props.locale !== "zh-CN" ? "AI generation failed." : "AI 生成失败。"),
       } : current);
     });
   }, [aiPanel, props.locale]);
@@ -1638,7 +1641,7 @@ function LocalTiptapEditorImpl(props: LocalTiptapEditorProps) {
             ))}
           {onAiRequestRef.current ? (
             <button
-              aria-label={props.locale === "en-US" ? "Use AI on the note or selected text" : "用 AI 处理正文或选中内容"}
+              aria-label={props.locale !== "zh-CN" ? "Use AI on the note or selected text" : "用 AI 处理正文或选中内容"}
               className="edgeever-ai-toolbar-button"
               onClick={requestOpenAiForSelection}
               onMouseDown={(event) => event.preventDefault()}
@@ -1659,7 +1662,7 @@ function LocalTiptapEditorImpl(props: LocalTiptapEditorProps) {
       )}
       {aiSelectionTrigger && !aiPanel ? (
         <button
-          aria-label={props.locale === "en-US" ? "Use AI on selected text" : "用 AI 处理选中内容"}
+          aria-label={props.locale !== "zh-CN" ? "Use AI on selected text" : "用 AI 处理选中内容"}
           className="edgeever-ai-selection-trigger"
           onClick={requestOpenAiForSelection}
           onMouseDown={(event) => event.preventDefault()}
@@ -1673,14 +1676,14 @@ function LocalTiptapEditorImpl(props: LocalTiptapEditorProps) {
       ) : null}
       {aiSelectionHint ? (
         <div aria-live="polite" className="edgeever-ai-selection-hint" role="status">
-          {props.locale === "en-US" ? "Add some note content first." : "请先输入正文内容。"}
+          {props.locale !== "zh-CN" ? "Add some note content first." : "请先输入正文内容。"}
         </div>
       ) : null}
       {aiUndoFingerprint && !aiPanel ? (
         <div aria-live="polite" className="edgeever-ai-undo" role="status">
-          <span>{props.locale === "en-US" ? "AI updated the selection." : "AI 已更新选中内容。"}</span>
+          <span>{props.locale !== "zh-CN" ? "AI updated the selection." : "AI 已更新选中内容。"}</span>
           <button onClick={undoAiSelectionDraft} onMouseDown={(event) => event.preventDefault()} type="button">
-            {props.locale === "en-US" ? "Undo" : "撤销"}
+            {props.locale !== "zh-CN" ? "Undo" : "撤销"}
           </button>
         </div>
       ) : null}
@@ -1726,7 +1729,7 @@ const MobileSelectionAiPanel = ({
   panel,
   prompts,
 }: {
-  locale: "zh-CN" | "en-US";
+  locale: "zh-CN" | "en-US" | "ja";
   onApply: (mode: "append" | "replace") => void;
   onChange: Dispatch<SetStateAction<MobileAiPanelState | null>>;
   onClose: () => void;
@@ -1736,7 +1739,7 @@ const MobileSelectionAiPanel = ({
   panel: MobileAiPanelState;
   prompts: AiPromptTemplate[];
 }) => {
-  const english = locale === "en-US";
+  const english = locale !== "zh-CN";
   const [picker, setPicker] = useState<MobileAiPickerKind | null>(null);
   const actionLabels: Record<AiAction, string> = {
     summarize: english ? "Summarize" : "精简总结",
@@ -2180,7 +2183,7 @@ const applyImageWidth = (
   element: HTMLElement,
   attributes: Record<string, unknown>
 ): number => {
-  const width = parseImageWidth(attributes.width) ?? DEFAULT_IMAGE_WIDTH_PERCENT;
+  const width = parseImageWidth(attributes.width) ?? NEW_IMAGE_WIDTH_PERCENT;
   element.style.width = `${width}%`;
   element.dataset.width = String(width);
   return width;
@@ -2223,7 +2226,7 @@ const loadMermaid = () => {
 };
 
 const createMobileCodeBlockExtension = (
-  locale: "zh-CN" | "en-US",
+  locale: "zh-CN" | "en-US" | "ja",
   theme: "light" | "dark",
   hideCopyForVisualDiagram = false,
 ) => CodeBlock.extend({
@@ -2251,12 +2254,12 @@ const createMobileCodeBlockExtension = (
       message.className = "edgeever-mermaid-message";
       svgContainer.className = "edgeever-mermaid-svg";
       svgContainer.setAttribute("role", "img");
-      svgContainer.setAttribute("aria-label", locale === "en-US" ? "Mermaid diagram preview" : "Mermaid 图表预览");
+      svgContainer.setAttribute("aria-label", locale !== "zh-CN" ? "Mermaid diagram preview" : "Mermaid 图表预览");
       copyButton.type = "button";
       copyButton.className = "edgeever-code-copy-button";
       copyButton.contentEditable = "false";
-      copyButton.setAttribute("aria-label", locale === "en-US" ? "Copy code" : "复制代码");
-      copyButton.textContent = locale === "en-US" ? "Copy code" : "复制代码";
+      copyButton.setAttribute("aria-label", locale !== "zh-CN" ? "Copy code" : "复制代码");
+      copyButton.textContent = locale !== "zh-CN" ? "Copy code" : "复制代码";
       copyButton.addEventListener("pointerdown", (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -2265,21 +2268,21 @@ const createMobileCodeBlockExtension = (
         event.preventDefault();
         event.stopPropagation();
         void Clipboard.setStringAsync(currentNode.textContent).then(() => {
-          copyButton.textContent = locale === "en-US" ? "Copied" : "已复制";
-          copyButton.setAttribute("aria-label", locale === "en-US" ? "Copied" : "已复制");
+          copyButton.textContent = locale !== "zh-CN" ? "Copied" : "已复制";
+          copyButton.setAttribute("aria-label", locale !== "zh-CN" ? "Copied" : "已复制");
           if (copyResetTimer !== null) window.clearTimeout(copyResetTimer);
           copyResetTimer = window.setTimeout(() => {
-            copyButton.textContent = locale === "en-US" ? "Copy code" : "复制代码";
-            copyButton.setAttribute("aria-label", locale === "en-US" ? "Copy code" : "复制代码");
+            copyButton.textContent = locale !== "zh-CN" ? "Copy code" : "复制代码";
+            copyButton.setAttribute("aria-label", locale !== "zh-CN" ? "Copy code" : "复制代码");
             copyResetTimer = null;
           }, 1800);
         }).catch(() => {
-          copyButton.textContent = locale === "en-US" ? "Copy failed" : "复制失败";
-          copyButton.setAttribute("aria-label", locale === "en-US" ? "Copy failed" : "复制失败");
+          copyButton.textContent = locale !== "zh-CN" ? "Copy failed" : "复制失败";
+          copyButton.setAttribute("aria-label", locale !== "zh-CN" ? "Copy failed" : "复制失败");
           if (copyResetTimer !== null) window.clearTimeout(copyResetTimer);
           copyResetTimer = window.setTimeout(() => {
-            copyButton.textContent = locale === "en-US" ? "Copy code" : "复制代码";
-            copyButton.setAttribute("aria-label", locale === "en-US" ? "Copy code" : "复制代码");
+            copyButton.textContent = locale !== "zh-CN" ? "Copy code" : "复制代码";
+            copyButton.setAttribute("aria-label", locale !== "zh-CN" ? "Copy code" : "复制代码");
             copyResetTimer = null;
           }, 1800);
         });
@@ -2309,8 +2312,8 @@ const createMobileCodeBlockExtension = (
         wrapper.dataset.language = language;
         preview.hidden = !isMermaid;
         code.setAttribute("aria-label", isMermaid
-          ? (locale === "en-US" ? "Mermaid source" : "Mermaid 源码")
-          : (locale === "en-US" ? "Code source" : "代码源码"));
+          ? (locale !== "zh-CN" ? "Mermaid source" : "Mermaid 源码")
+          : (locale !== "zh-CN" ? "Code source" : "代码源码"));
         if (!isMermaid) {
           preview.replaceChildren();
           return;
@@ -2319,7 +2322,7 @@ const createMobileCodeBlockExtension = (
         const source = currentNode.textContent.trim();
         if (!source) {
           message.className = "edgeever-mermaid-message";
-          message.textContent = locale === "en-US" ? "Enter Mermaid source below." : "请在下方输入 Mermaid 源码。";
+          message.textContent = locale !== "zh-CN" ? "Enter Mermaid source below." : "请在下方输入 Mermaid 源码。";
           preview.replaceChildren(message);
           return;
         }
@@ -2327,7 +2330,7 @@ const createMobileCodeBlockExtension = (
         const activeRequest = renderRequest;
         renderTimer = window.setTimeout(() => {
           message.className = "edgeever-mermaid-message";
-          message.textContent = locale === "en-US" ? "Rendering diagram…" : "正在渲染图表…";
+          message.textContent = locale !== "zh-CN" ? "Rendering diagram…" : "正在渲染图表…";
           preview.replaceChildren(message);
           void loadMermaid()
             .then(async (mermaid) => {
@@ -2361,7 +2364,7 @@ const createMobileCodeBlockExtension = (
                 return;
               }
               message.className = "edgeever-mermaid-error";
-              message.textContent = locale === "en-US"
+              message.textContent = locale !== "zh-CN"
                 ? "Unable to render this diagram. Check its syntax."
                 : "无法渲染此图表，请检查语法。";
               preview.replaceChildren(message);
@@ -2391,7 +2394,7 @@ const createMobileCodeBlockExtension = (
 });
 
 const createMobileImageSizeControls = (
-  locale: "zh-CN" | "en-US",
+  locale: "zh-CN" | "en-US" | "ja",
   updateWidth: (width: number) => void
 ) => {
   const controls = document.createElement("div");
@@ -2443,7 +2446,7 @@ const createMobileImageSizeControls = (
 
 const createProtectedImageExtension = (
   baseUrl: string,
-  locale: "zh-CN" | "en-US",
+  locale: "zh-CN" | "en-US" | "ja",
   loadResource: (source: string) => Promise<string | null>,
   options?: {
     readOnly?: boolean | (() => boolean);
@@ -2548,7 +2551,7 @@ const createProtectedImageExtension = (
         const spinner = document.createElement("span");
         spinner.className = "edgeever-image-upload-spinner";
         spinner.setAttribute("aria-hidden", "true");
-        overlay.append(spinner, locale === "en-US" ? "Uploading image…" : "图片上传中…");
+        overlay.append(spinner, locale !== "zh-CN" ? "Uploading image…" : "图片上传中…");
         if (previewSource) {
           placeholder.append(preview);
         }
@@ -2603,7 +2606,7 @@ const createProtectedImageExtension = (
             if (activeRequestId !== requestId) {
               return;
             }
-            overlay.textContent = locale === "en-US" ? "Image failed to load" : "图片加载失败";
+            overlay.textContent = locale !== "zh-CN" ? "Image failed to load" : "图片加载失败";
           };
           preload.src = displaySource;
         };
@@ -2628,11 +2631,11 @@ const createProtectedImageExtension = (
                 revealLoadedImage(dataUrl, attributes, activeRequestId);
                 return;
               }
-              overlay.textContent = locale === "en-US" ? "Image failed to load" : "图片加载失败";
+              overlay.textContent = locale !== "zh-CN" ? "Image failed to load" : "图片加载失败";
             })
             .catch(() => {
               if (activeRequestId === requestId) {
-                overlay.textContent = locale === "en-US" ? "Image failed to load" : "图片加载失败";
+                overlay.textContent = locale !== "zh-CN" ? "Image failed to load" : "图片加载失败";
               }
             });
         };
@@ -2696,7 +2699,7 @@ const createProtectedImageExtension = (
       actionButton.className = "edgeever-image-actions";
       actionButton.contentEditable = "false";
       actionButton.hidden = true;
-      actionButton.setAttribute("aria-label", locale === "en-US" ? "Image actions" : "图片操作");
+      actionButton.setAttribute("aria-label", locale !== "zh-CN" ? "Image actions" : "图片操作");
       actionButton.textContent = "⋯";
       bindImageActionButton(wrapper, actionButton);
       image.addEventListener("click", (event) => {
@@ -2732,7 +2735,7 @@ const createProtectedImageExtension = (
           loading.replaceChildren();
           const label = document.createElement("span");
           label.className = "edgeever-image-loading-label";
-          label.textContent = locale === "en-US" ? "Image failed to load" : "图片加载失败";
+          label.textContent = locale !== "zh-CN" ? "Image failed to load" : "图片加载失败";
           loading.append(label);
           loading.hidden = false;
         } else if (phase === "loading") {
@@ -2922,7 +2925,7 @@ const insertImageUploadPlaceholder = (
       alt,
       src: source,
       title: previewDataUrl,
-      width: DEFAULT_IMAGE_WIDTH_PERCENT,
+      width: NEW_IMAGE_WIDTH_PERCENT,
   }, selection ?? editor.state.selection);
   tr.setMeta(TRANSIENT_IMAGE_UPLOAD_META, true);
   editor.view.dispatch(tr);
@@ -2970,6 +2973,7 @@ const getEditorStyles = (theme: "light" | "dark", options?: { viewer?: boolean }
   :root {
     color-scheme: ${theme};
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-feature-settings: "chws" 1;
     /* Match PC/Web memo body (MEMO_CONTENT_STYLE) so notes don't feel oversized on phone. */
     --editor-body-font-size: ${bodyFontSize}px;
     --editor-body-line-height: ${bodyLineHeight};
@@ -3084,6 +3088,7 @@ const getEditorStyles = (theme: "light" | "dark", options?: { viewer?: boolean }
     line-height: var(--editor-body-line-height);
     overflow-wrap: anywhere;
     word-break: break-word;
+    font-feature-settings: "chws" 1;
     caret-color: ${options?.viewer ? "transparent" : "#0f766e"};
   }
   .edgeever-viewer-content { -webkit-user-select: text; user-select: text; cursor: text; }
@@ -3107,7 +3112,10 @@ const getEditorStyles = (theme: "light" | "dark", options?: { viewer?: boolean }
   .edgeever-editor-content p.is-editor-empty:first-child::before { float: left; height: 0; color: #94a3b8; content: attr(data-placeholder); pointer-events: none; }
   .edgeever-editor-content h1,
   .edgeever-editor-content h2,
-  .edgeever-editor-content h3 {
+  .edgeever-editor-content h3,
+  .edgeever-editor-content h4,
+  .edgeever-editor-content h5,
+  .edgeever-editor-content h6 {
     max-width: 100%;
     overflow-wrap: anywhere;
     line-height: 1.3;
@@ -3116,10 +3124,13 @@ const getEditorStyles = (theme: "light" | "dark", options?: { viewer?: boolean }
   .edgeever-editor-content h1 { margin: 0.7em 0 0.4em; font-size: 1.6rem; }
   .edgeever-editor-content h2 { margin: 0.85em 0 0.35em; font-size: 1.35rem; }
   .edgeever-editor-content h3 { margin: 0.75em 0 0.3em; font-size: 1.15rem; }
+  .edgeever-editor-content h4 { margin: 0.7em 0 0.28em; font-size: 1.05rem; font-weight: 700; }
+  .edgeever-editor-content h5 { margin: 0.65em 0 0.25em; font-size: 1rem; font-weight: 700; }
+  .edgeever-editor-content h6 { margin: 0.6em 0 0.22em; font-size: 0.95rem; font-weight: 700; }
   .edgeever-editor-content ul[data-type="taskList"] { margin: 0 0 var(--editor-paragraph-spacing); padding-left: 0; list-style: none; }
   .edgeever-editor-content ul[data-type="taskList"] li[data-checked] { display: flex; align-items: flex-start; gap: 9px; margin: 4px 0; }
   .edgeever-editor-content ul[data-type="taskList"] li[data-checked] > label { display: inline-flex; flex: 0 0 auto; align-items: center; margin-top: 3px; user-select: none; }
-  .edgeever-editor-content ul[data-type="taskList"] li[data-checked] > label input { width: 18px; height: 18px; margin: 0; border-radius: 3px; accent-color: #16a06e; }
+  .edgeever-editor-content ul[data-type="taskList"] li[data-checked] > label input { width: 18px; height: 18px; margin: 0; border-radius: 3px; accent-color: #1a1d21; }
   .edgeever-editor-content ul[data-type="taskList"] li[data-checked] > div { min-width: 0; flex: 1 1 auto; }
   .edgeever-editor-content ul[data-type="taskList"] li[data-checked] > div > p { margin-bottom: 0; }
   .edgeever-editor-content ul[data-type="taskList"] li[data-checked="true"] > div > p { color: #94a3b8; text-decoration: line-through; }
@@ -3196,6 +3207,7 @@ const getEditorStyles = (theme: "light" | "dark", options?: { viewer?: boolean }
     font-size: 12px;
     font-weight: 600;
   }
+  ${DETAILS_EDITOR_CSS}
   .edgeever-editor-content .edgeever-unsupported-content--block { display: block; margin: 8px 0; padding: 12px; }
   .edgeever-editor-content .edgeever-unsupported-content--inline { display: inline-block; margin: 0 2px; padding: 2px 6px; }
   .edgeever-editor-content .edgeever-unsupported-mark { border-bottom: 1px dashed ${theme === "dark" ? "#94a3b8" : "#64748b"}; }
@@ -3214,7 +3226,7 @@ const getEditorStyles = (theme: "light" | "dark", options?: { viewer?: boolean }
   .edgeever-editor-scroll:has(.edgeever-x6-document) { display: flex; flex-direction: column; overflow: hidden; }
   .edgeever-x6-document, .edgeever-diagram-reader-host { display: flex; flex-direction: column; height: 100%; min-height: 100%; padding: 8px 12px 12px; background: ${theme === "dark" ? "#0f172a" : "#fff"}; }
   .edgeever-diagram-reader-controls { flex: 0 0 auto; }
-  .edgeever-x6-diagram { flex: 1 1 auto; width: 100%; height: auto; min-height: 240px; overflow: hidden; border: 1px solid ${theme === "dark" ? "#26382f" : "#e3ece7"}; border-radius: 14px; background: ${theme === "dark" ? "#101311" : "#f8faf9"}; touch-action: none; }
+  .edgeever-x6-diagram { flex: 1 1 auto; width: 100%; height: auto; min-height: 240px; overflow: hidden; border: 1px solid ${theme === "dark" ? "#26382f" : "#e3ece7"}; border-radius: 14px; background: ${theme === "dark" ? DIAGRAM_CANVAS_DARK : DIAGRAM_CANVAS_LIGHT}; touch-action: none; }
   .edgeever-x6-diagram .x6-graph-svg { overflow: hidden; }
   .edgeever-x6-diagram .x6-node { cursor: pointer; }
   .edgeever-mermaid-code-block > pre { display: none; margin: 8px 0 0; }
@@ -3348,5 +3360,6 @@ const getEditorStyles = (theme: "light" | "dark", options?: { viewer?: boolean }
   .edgeever-image-upload-spinner { width: 18px; height: 18px; border: 2px solid ${theme === "dark" ? "#475569" : "#cbd5e1"}; border-top-color: #0f766e; border-radius: 999px; animation: edgeever-image-upload-spin 0.8s linear infinite; }
   @keyframes edgeever-image-upload-spin { to { transform: rotate(360deg); } }
   .edgeever-editor-content hr { margin: 24px 0; border: 0; border-top: 1px solid #cbd5e1; }
+  ${PHONE_IMAGE_FILL_CSS}
 `;
 };

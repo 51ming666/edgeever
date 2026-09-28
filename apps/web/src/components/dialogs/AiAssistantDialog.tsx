@@ -52,14 +52,19 @@ import {
   promptNeedsTargetLanguage,
   promptNeedsTone,
   readStoredAiAssistantLastActionPreference,
+  readStoredAiAssistantMode,
   resolveAiAssistantComposerInput,
   resolveAiAssistantOpenAction,
   targetLanguages,
   writeStoredAiAssistantLastActionPreference,
+  writeStoredAiAssistantMode,
   type AiAssistantAction,
+  type AiAssistantMode,
   type AiTone,
   type TargetLanguage,
 } from "@/lib/ai-assistant";
+import { CompanionChat } from "@/components/CompanionChat";
+import { parseDiagramDocument } from "@edgeever/shared";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import {
   clampFloatingPanelPosition,
@@ -72,7 +77,7 @@ const FREEFORM_VALUE = "custom";
 const PROMPT_VALUE_PREFIX = "prompt:";
 const AI_ASSISTANT_LAYER_SELECTOR = '[data-edgeever-ai-assistant-layer="true"]';
 const AI_ASSISTANT_VIEWPORT_GAP = 12;
-const AI_ASSISTANT_SELECT_TRIGGER_CLASSNAME = "h-10 w-full min-w-0 shadow-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/15 focus:ring-offset-0 data-[state=open]:border-emerald-400 data-[state=open]:ring-2 data-[state=open]:ring-emerald-500/15";
+const AI_ASSISTANT_SELECT_TRIGGER_CLASSNAME = "h-10 w-full min-w-0 shadow-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 focus:ring-offset-0 data-[state=open]:border-slate-900 data-[state=open]:ring-2 data-[state=open]:ring-slate-900/10";
 
 const getViewportSize = () => ({
   height: typeof window === "undefined" ? 768 : window.innerHeight,
@@ -102,18 +107,32 @@ export const AiAssistantDialog = ({
   title,
   contentMarkdown,
   selectionMarkdown,
+  memoId,
+  notebookId,
+  notebookTitle,
+  companionAvailable = false,
   onOpenChange,
   onApply,
   onOpenPromptLibrary,
+  beforeCompanionApply,
+  onCompanionNotesChanged,
+  onOpenCompanionNote,
 }: {
   open: boolean;
   anchor: AiAssistantAnchor;
   title: string;
   contentMarkdown: string;
   selectionMarkdown?: string | null;
+  memoId?: string;
+  notebookId?: string;
+  notebookTitle?: string;
+  companionAvailable?: boolean;
   onOpenChange: (open: boolean) => void;
   onApply: (text: string, mode: "append" | "replace") => boolean;
   onOpenPromptLibrary?: () => void;
+  beforeCompanionApply?: () => Promise<void>;
+  onCompanionNotesChanged?: () => Promise<void>;
+  onOpenCompanionNote?: (id: string, notebookId: string) => void;
 }) => {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
@@ -140,6 +159,7 @@ export const AiAssistantDialog = ({
   const [attachments, setAttachments] = useState<PreparedAiAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [isReadingAttachments, setIsReadingAttachments] = useState(false);
+  const [mode, setMode] = useState<AiAssistantMode>("instruction");
   const [initializedForOpen, setInitializedForOpen] = useState(false);
   const [panelElement, setPanelElement] = useState<HTMLElement | null>(null);
   const [draggedPosition, setDraggedPosition] = useState<FloatingPanelPosition | null>(null);
@@ -214,6 +234,7 @@ export const AiAssistantDialog = ({
     dragStateRef.current = null;
     customInstructionEditedRef.current = false;
     lastRequestRef.current = null;
+    setMode(hasSelection ? "instruction" : readStoredAiAssistantMode());
   }, [defaultAction, defaultTargetLanguage, hasSelection, open]);
 
   useEffect(() => {
@@ -600,6 +621,12 @@ export const AiAssistantDialog = ({
     };
   }, [handleDragEnd, handleDragMove, open]);
 
+  const chatting = mode === "ask";
+  const openDiagram = useMemo(() => parseDiagramDocument(contentMarkdown), [contentMarkdown]);
+  const selectMode = (next: AiAssistantMode) => {
+    setMode(next);
+    writeStoredAiAssistantMode(next);
+  };
   const panelStyle = useMemo<CSSProperties>(() => {
     const { height: viewportHeight, width: viewportWidth } = viewportSize;
     if (draggedPosition) {
@@ -644,12 +671,14 @@ export const AiAssistantDialog = ({
             onPointerDown={handleDragStart}
           >
             <div className="flex min-w-0 flex-1 items-center gap-2">
-              <Sparkles className="h-5 w-5 shrink-0 text-emerald-600" />
+              <Sparkles className="h-5 w-5 shrink-0 text-slate-700" />
               <span className="truncate text-sm font-semibold text-slate-950">{t("aiAssistant.title")}</span>
-              <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
-                {t(usesComposerAsSource
-                  ? "aiAssistant.inputScope"
-                  : hasSelection ? "aiAssistant.selectedScope" : "aiAssistant.noteScope")}
+              <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+                {t(chatting
+                  ? "aiAssistant.workspaceScope"
+                  : usesComposerAsSource
+                    ? "aiAssistant.inputScope"
+                    : hasSelection ? "aiAssistant.selectedScope" : "aiAssistant.noteScope")}
               </span>
               <GripHorizontal aria-hidden="true" className="ml-auto h-4 w-4 shrink-0 text-slate-300" />
             </div>
@@ -657,22 +686,64 @@ export const AiAssistantDialog = ({
               <X className="h-4 w-4" />
             </Button>
           </div>
+          <div className="mb-3 flex shrink-0 gap-1 rounded-lg bg-slate-100 p-1" role="tablist" aria-label={t("aiAssistant.title")}>
+            {(["instruction", "ask"] as const).map((item) => (
+              <button
+                key={item}
+                type="button"
+                role="tab"
+                aria-selected={mode === item}
+                className={cn(
+                  "h-8 flex-1 rounded-md px-2 text-xs font-medium",
+                  mode === item ? "bg-card text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800",
+                )}
+                onClick={() => selectMode(item)}
+              >
+                {t(`aiAssistant.modes.${item}`)}
+              </button>
+            ))}
+          </div>
+          {chatting ? (
+            <CompanionChat
+              available={companionAvailable}
+              focus={{
+                memoId,
+                notebookId,
+                notebookTitle,
+                title,
+                selectionMarkdown,
+                ...(openDiagram
+                  ? { diagramKind: openDiagram.kind }
+                  : contentMarkdown.trim()
+                    ? {
+                      contentMarkdown: contentMarkdown.trim().slice(0, 4000),
+                      ...(contentMarkdown.trim().length > 4000 ? { contentTruncated: true } : {}),
+                    }
+                    : {}),
+              }}
+              placeholder={t("aiAssistant.modes.askPlaceholder")}
+              beforeApply={beforeCompanionApply ?? (async () => undefined)}
+              onNotesChanged={onCompanionNotesChanged ?? (async () => undefined)}
+              onOpenNote={onOpenCompanionNote ?? (() => undefined)}
+            />
+          ) : (
+          <>
           <div className="min-h-0 flex-1 overflow-y-auto pr-1">
             <div className="grid gap-4">
             {hasSelection ? (
-              <p className="max-h-12 overflow-hidden whitespace-pre-wrap border-l-2 border-emerald-200 pl-3 text-xs leading-5 text-slate-500">
+              <p className="max-h-12 overflow-hidden whitespace-pre-wrap border-l-2 border-slate-300 pl-3 text-xs leading-5 text-slate-500">
                 {selectionMarkdown}
               </p>
             ) : null}
             {showInstructionComposer || showSourceComposer ? (
             <div className="grid gap-2">
-              <label className="grid gap-1.5 text-sm font-medium text-slate-700">
+              <label className="grid gap-1.5 text-xs font-normal leading-5 text-slate-700">
                 {t(showInstructionComposer
                   ? (hasSelection ? "aiAssistant.customInstructionSelected" : "aiAssistant.customInstruction")
                   : "aiAssistant.inputContent")}
                 <textarea
                   ref={instructionRef}
-                  className="min-h-24 resize-y rounded-md border border-slate-200 bg-card px-3 py-2 text-sm font-normal text-slate-900 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/15"
+                  className="min-h-24 resize-y rounded-md border border-slate-200 bg-card px-3 py-2 text-sm font-normal text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
                   value={customInstruction}
                   onChange={(event) => {
                     handleComposerChange(event.target.value);
@@ -705,11 +776,11 @@ export const AiAssistantDialog = ({
             ) : null}
             <div className="grid gap-2">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-medium text-slate-700">{t("aiAssistant.actionLabel")}</span>
+                <span className="text-xs font-normal leading-5 text-slate-700">{t("aiAssistant.actionLabel")}</span>
                 {onOpenPromptLibrary ? (
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:text-emerald-800"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-slate-800 hover:text-slate-950"
                     onClick={() => {
                       onOpenChange(false);
                       onOpenPromptLibrary();
@@ -753,7 +824,7 @@ export const AiAssistantDialog = ({
                     variant="outline"
                     className={cn(
                       "h-10 min-w-0 w-full gap-1.5 whitespace-nowrap px-3 text-sm font-medium",
-                      isFreeformCustom && "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 hover:text-emerald-900",
+                      isFreeformCustom && "border-slate-900 bg-slate-100 text-slate-950 hover:bg-slate-200 hover:text-slate-950",
                     )}
                     onClick={() => handleActionChange(FREEFORM_VALUE)}
                   >
@@ -768,7 +839,7 @@ export const AiAssistantDialog = ({
                     <Button type="button" variant="solid" className="h-10 min-w-0 w-full gap-1.5 whitespace-nowrap px-3 text-sm font-semibold" disabled={generateDisabled} onClick={() => void generate()}>
                       <Sparkles className="h-4 w-4 shrink-0" />
                       {t("aiAssistant.generate")}
-                      <kbd aria-hidden="true" className="ml-0.5 rounded bg-card/10 px-1 py-0.5 text-[10px] font-medium leading-none text-white/65">
+                      <kbd aria-hidden="true" className="ml-0.5 rounded bg-card/10 px-1 py-0.5 text-xs font-medium leading-none text-white/65">
                         ↵
                       </kbd>
                     </Button>
@@ -778,7 +849,7 @@ export const AiAssistantDialog = ({
             </div>
             {promptNeedsTargetLanguage(effectiveParameterKind) ? (
               <div className="grid gap-1.5">
-                <span className="text-sm font-medium text-slate-700">{t("aiAssistant.targetLanguage")}</span>
+                <span className="text-xs font-normal leading-5 text-slate-700">{t("aiAssistant.targetLanguage")}</span>
                 <Select value={targetLanguage} onValueChange={(value) => {
                   const nextTargetLanguage = value as TargetLanguage;
                   setTargetLanguage(nextTargetLanguage);
@@ -809,7 +880,7 @@ export const AiAssistantDialog = ({
             ) : null}
             {promptNeedsTone(effectiveParameterKind) ? (
               <div className="grid gap-1.5">
-                <span className="text-sm font-medium text-slate-700">{t("aiAssistant.tone")}</span>
+                <span className="text-xs font-normal leading-5 text-slate-700">{t("aiAssistant.tone")}</span>
                 <Select value={tone} onValueChange={(value) => {
                   const nextTone = value as AiTone;
                   setTone(nextTone);
@@ -882,7 +953,7 @@ export const AiAssistantDialog = ({
                       <span className="shrink-0 text-slate-400">{formatAiAttachmentSize(attachment.byteLength)}</span>
                       <button
                         type="button"
-                        className="ml-0.5 rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                        className="ml-0.5 rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20"
                         aria-label={t("aiAssistant.removeAttachment", { name: attachment.filename })}
                         onClick={() => {
                           setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index));
@@ -903,9 +974,9 @@ export const AiAssistantDialog = ({
             </div>
             <div className="grid gap-1.5">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-medium text-slate-700">{t("aiAssistant.result")}</span>
+                <span className="text-xs font-normal leading-5 text-slate-700">{t("aiAssistant.result")}</span>
                 {isGenerating ? (
-                  <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-700">
+                  <span className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />{t("aiAssistant.generating")}
                   </span>
                 ) : null}
@@ -931,10 +1002,10 @@ export const AiAssistantDialog = ({
             </div>
             {output && !isGenerating ? (
               <div className="grid gap-1.5 rounded-lg border border-slate-200 bg-card p-3">
-                <span className="text-sm font-medium text-slate-700">{t("aiAssistant.refine")}</span>
+                <span className="text-xs font-normal leading-5 text-slate-700">{t("aiAssistant.refine")}</span>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <input
-                    className="h-10 min-w-0 flex-1 rounded-md border border-slate-200 bg-card px-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/15"
+                    className="h-10 min-w-0 flex-1 rounded-md border border-slate-200 bg-card px-3 text-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
                     value={refinement}
                     onChange={(event) => setRefinement(event.target.value)}
                     aria-label={t("aiAssistant.refine")}
@@ -972,6 +1043,8 @@ export const AiAssistantDialog = ({
               </div>
             </div>
           ) : null}
+          </>
+          )}
         </section>,
         document.body,
       ) : null}
@@ -997,7 +1070,7 @@ export const AiAssistantDialog = ({
               <DialogTitle>{t("aiAssistant.saveAsPromptTitle")}</DialogTitle>
               <DialogDescription>{t("aiPrompts.description")}</DialogDescription>
             </DialogHeader>
-            <label className="grid gap-1.5 text-sm font-medium text-slate-700">
+            <label className="grid gap-1.5 text-xs font-normal leading-5 text-slate-700">
               {t("aiAssistant.promptName")}
               <Input
                 value={saveName}
@@ -1008,7 +1081,7 @@ export const AiAssistantDialog = ({
                 autoFocus
               />
             </label>
-            <label className="grid gap-1.5 text-sm font-medium text-slate-700">
+            <label className="grid gap-1.5 text-xs font-normal leading-5 text-slate-700">
               {t("aiAssistant.promptDescription")}
               <Input
                 value={saveDescription}
