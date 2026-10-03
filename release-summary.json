@@ -1,32 +1,23 @@
 {
-  "version": "1.95.0",
+  "version": "1.99.1",
   "changes": {
     "en-US": [
-      "Structured tables can now be created and edited through MCP, including table schemas and record operations.",
-      "Note body colors have been refined. The removed Plum palette in saved settings falls back to the default appearance.",
-      "The local Agent now supports Claude Code, OpenClaw, and Hermes. Compatible agents can access notes for the current session; note context is optional, generated images are kept locally, and activity and settings are clearer.",
-      "Copying notes for publishing now shows progress, and copying to WeChat preserves LaTeX formulas.",
-      "Infographics can be generated from the AI sidebar and exported as readable images.",
-      "Changing a password now works from an existing desktop sign-in session.",
-      "The note menu is simpler, with theme and repository rows removed."
+      "Codex progress in the AI sidebar now stays in the process view, while the final reply appears separately.",
+      "Desktop Codex sessions now use the first user prompt for their titles.",
+      "Downloaded file attachments and PDFs on desktop now keep their original filenames.",
+      "Firefox Web Clipper 0.1.15 now requests site access when saving from its popup and improves add-on submission compatibility."
     ],
     "zh-CN": [
-      "现在可以通过 MCP 创建和编辑结构化表格，包括表结构与记录的增删改查。",
-      "笔记正文配色已调整；此前保存的梅红配色会回退为默认外观。",
-      "本机 Agent 新增 Claude Code、OpenClaw 和 Hermes 支持。兼容的 Agent 可在当前会话访问笔记；当前笔记上下文可选，生成的图片会保存在本机，活动和设置显示也更清楚。",
-      "复制笔记用于发布时会显示进度；复制到微信时会保留 LaTeX 公式。",
-      "现在可以在 AI 侧栏生成信息图，并将其导出为清晰易读的图片。",
-      "使用现有桌面端登录会话时，现在可以正常修改密码。",
-      "笔记菜单移除了主题和仓库条目，内容更简洁。"
+      "AI 侧边栏中的 Codex 过程消息现显示在过程区域，最终回复单独呈现。",
+      "桌面端 Codex 会话现在根据用户的首条提问生成标题。",
+      "桌面端下载文件附件和 PDF 时，现在会保留原始文件名。",
+      "Firefox 网页剪藏插件 0.1.15 现可在弹窗保存时正确请求网站访问权限，并改进扩展提交兼容性。"
     ],
     "ja": [
-      "MCP から構造化テーブルのスキーマとレコードを作成・編集できるようになりました。",
-      "ノート本文の配色を調整しました。保存済みの Plum 配色は標準の外観に戻ります。",
-      "ローカル Agent が Claude Code、OpenClaw、Hermes に対応しました。対応する Agent は現在のセッションでノートにアクセスでき、ノート文脈は任意です。生成画像はローカルに保存され、操作状況と設定も見やすくなりました。",
-      "公開用にノートをコピーすると進行状況が表示され、微信へのコピーでは LaTeX 数式が保持されます。",
-      "AI サイドバーからインフォグラフィックを生成し、読みやすい画像として書き出せます。",
-      "既存のデスクトップのログインセッションからパスワードを変更できるようになりました。",
-      "ノートメニューからテーマとリポジトリの項目を外し、表示を簡潔にしました。"
+      "AI サイドバーでは Codex の進行メッセージを処理欄に表示し、最終回答を分けて表示します。",
+      "デスクトップ版の Codex セッション名に、最初のユーザープロンプトが反映されます。",
+      "デスクトップ版でファイル添付と PDF をダウンロードする際、元のファイル名が保持されます。",
+      "Firefox Web Clipper 0.1.15 では、ポップアップから保存する際にサイトへのアクセス許可を求め、アドオンの提出互換性を改善しました。"
     ]
   }
 }

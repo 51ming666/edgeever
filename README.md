@@ -83,7 +83,8 @@ The public demo resets every day at 3:00 AM (China Standard Time) and restores s
 - **Visual Diagram Notes**: Ditch external drawing tools and sketch mind maps, flowcharts, and architecture diagrams directly in notes. Backed by a structured IR, the built-in assistant and external AI agents can generate and refine diagrams from a single prompt, complete with smart auto-layout, cross-device sync, and vector export. See the [visual diagram notes design](docs/visual-diagram-notes.md).
 - **Revision History**: Inspect and restore previous iterations of your notes with built-in version tracking.
 - **Public Note Sharing**: Share a note publicly and stop sharing it at any time. Optionally protect the link with an auto-generated access password.
-- **WeChat Article Clipping on Mobile**: Share a WeChat Official Account article to EdgeEver on your phone to extract its content and save it as an editable note.
+- **WeChat Article Clipping**: Share a WeChat Official Account article to EdgeEver on your phone to extract its content and save it as an editable note.
+- **WeChat Chat Archive Import**: On macOS, share chat history from WeChat via "Forward to Other Apps → EdgeEver" to import the entire conversation into a structured note with one click, preserving senders, timelines, quoted replies, and WeChat emojis, with images embedded and videos/files attached automatically.
 - **Smart Local Image Compression**: Client-side WebP compression reduces file sizes by 50%-90% before uploading, saving storage and speeding up page loads without extra server costs.
 - **Universal File Attachments**: Attach and preview PDFs, Office documents, zip files, audio, and video directly within notes. Chunked uploads and streaming safely support files up to 1 GiB.
 - **Batch Operations & Flexible Sorting**: Easily merge or relocate multiple notes, with drag-and-drop notebook reordering.
@@ -171,7 +172,7 @@ The instance administrator can create, disable, or reset member accounts in **Pr
 
 - **Smart Article Extraction**: Automatically extracts article content and converts it into clean Markdown, preserving the source URL and clipping timestamp.
 - **Selection & Context Menu Clipping**: Save selected text or right-clicked images directly as notes without capturing the entire page.
-- **X (Twitter) Post Clipping**: Right-click any post to automatically expand full text and archive the author, timestamp, and attached images together.
+- **Deep Social & Community Clipping**: Native support for X (Twitter), Xiaohongshu, Zhihu, Reddit, and GitHub with one-click sending.
 - **Private Self-Hosted Direct Connection**: Sends clipped content directly to your personal EdgeEver instance without third-party relays.
 
 ## Community and Feedback
@@ -245,10 +246,10 @@ Open **Profile** -> **Import and export** to export or import an EdgeEver ZIP. I
 
 ## MCP
 
-Create an API token in **Profile** -> **MCP settings** and give it to your AI Agent. The Agent can then securely manage your knowledge base within your account permissions. It supports both text notes and diagram notes (including mind maps, flowcharts, and architecture diagrams) with full CRUD capabilities. The Agent can create a structured table note from a field plan, edit its fields, and read, add, update, or delete its records. The Agent can also manage note templates and AI instructions.
+Create an API token in **Profile** -> **API / MCP** and copy the Remote MCP configuration in one click to let AI Agents such as Claude Code, Cursor, Antigravity, and OpenClaw securely manage your knowledge base within account permissions. EdgeEver supports full CRUD for text notes, visual diagram notes (mind maps, flowcharts, and architecture diagrams), and structured table notes. Agents can also manage notebook hierarchies, tags, attachments, revision history, note templates, and AI instructions.
 
 > 💡 **Inspiration:**
-> Make AI your true knowledge orchestrator and creative co-pilot—instantly turn concepts into interactive mind maps and architecture diagrams, while supplying private context to your AI Agents. Paired with EdgeEver’s powerful rich-text editing and elegant typography, AI-assisted content becomes beautifully structured, polished, and publication-ready knowledge assets.
+> Make AI your true knowledge orchestrator and creative co-pilot—instantly turn concepts into interactive mind maps, flowcharts, architecture diagrams, and structured tables, while supplying private context to your AI Agents. Paired with EdgeEver’s powerful rich-text editing and elegant typography, AI-assisted content becomes beautifully structured, polished, and publication-ready knowledge assets.
 
 ## Image Compression
 
@@ -279,9 +280,8 @@ Web, PWA, and desktop upload memo edits after 30 seconds of inactivity and check
 
 ## Acknowledgements
 
-- EdgeEver's note-taking product design was also informed by the publicly available product experiences of mature note-taking tools such as [Evernote](https://evernote.com/). The related features were independently designed and implemented by EdgeEver.
+- EdgeEver's note-taking product design was also informed by the publicly available product experiences of mature note-taking tools such as [Evernote](https://evernote.com/) and [Notion](https://www.notion.com/). The related features were independently designed and implemented by EdgeEver.
 - The product design of mind-map and visual-diagram notes was informed by the publicly available product experiences of [XMind](https://xmind.com/) and [ProcessOn](https://www.processon.com/). These features were independently designed and implemented by EdgeEver.
-- Editor theme typography, heading hierarchy, and chapter structure draw from the public work of [obsidian-minimal](https://github.com/kepano/obsidian-minimal), [Outline](https://github.com/outline/outline), and [墨格](https://moyufang.cn/editor). Names, assets, and implementations are original to EdgeEver.
 
 ## Trademark and Brand Use
 
