@@ -10,6 +10,8 @@ import {
   resolveMemoContentDoc,
   resolveMergedMemoTitle,
   isSuspiciousMemoOverwrite,
+  SUSPICIOUS_MEMO_OVERWRITE_ERROR,
+  SUSPICIOUS_MEMO_OVERWRITE_MESSAGE,
   isMemoEditBindingValid,
   listTableAttachmentResourceIds,
   normalizeTags,
@@ -29,7 +31,6 @@ import { sha256 } from "./hash-utils";
 import { getRequiredString } from "./mcp-json-rpc";
 import {
   escapeLike,
-  listMemos,
   mapMemoSummary,
   toFtsQuery,
   type MemoSummaryRow,
@@ -169,6 +170,7 @@ export const searchMemoSummaries = async (
     updatedBefore?: string | null;
     isPinned?: boolean | null;
     hasResources?: boolean | null;
+    poster?: boolean | null;
     limit: number;
   }
 ): Promise<MemoSummary[]> => {
@@ -226,6 +228,11 @@ export const searchMemoSummaries = async (
     );
   }
 
+  if (typeof options.poster === "boolean") {
+    filters.push("(instr(c.content_markdown, '<!-- edgeever-poster-v1:') > 0) = ?");
+    binds.push(options.poster ? 1 : 0);
+  }
+
   if (q) {
     const ftsQuery = toFtsQuery(q);
     const likeQuery = `%${escapeLike(q)}%`;
@@ -254,7 +261,7 @@ export const searchMemoSummaries = async (
            )
            SELECT m.id, m.notebook_id, m.title, m.excerpt, m.tags_json, m.is_pinned,
                   m.is_archived, m.is_deleted, m.created_at, m.updated_at, m.deleted_at, c.revision,
-                  c.content_text
+                  c.content_text, (instr(c.content_markdown, '<!-- edgeever-poster-v1:') > 0) AS is_poster
            FROM search_matches s
            INNER JOIN memos m ON m.id = s.memo_id
            INNER JOIN memo_contents c ON c.memo_id = m.id
@@ -273,7 +280,7 @@ export const searchMemoSummaries = async (
     .prepare(
       `SELECT m.id, m.notebook_id, m.title, m.excerpt, m.tags_json, m.is_pinned,
               m.is_archived, m.is_deleted, m.created_at, m.updated_at, m.deleted_at, c.revision,
-              c.content_text
+              c.content_text, (instr(c.content_markdown, '<!-- edgeever-poster-v1:') > 0) AS is_poster
        FROM memos m
        INNER JOIN memo_contents c ON c.memo_id = m.id
        WHERE ${filters.join(" AND ")}
@@ -288,12 +295,15 @@ export const searchMemoSummaries = async (
 
 export const listMemosForMcp = async (
   db: DatabaseAdapter,
-  options: { workspaceId: string; notebookId?: string | null; limit: number; offset: number; includeContent: boolean; includeDeleted: boolean }
+  options: { workspaceId: string; notebookId?: string | null; limit: number; offset: number; includeContent: boolean; includeDeleted: boolean; poster?: boolean | null }
 ) => {
   const notebookId = options.notebookId?.trim() || null;
   const limit = clampNumber(options.limit, 1, 100);
   const offset = clampNumber(options.offset, 0, 100_000);
   const pageSize = limit + 1;
+  const posterFilter = typeof options.poster === "boolean"
+    ? `(instr(c.content_markdown, '<!-- edgeever-poster-v1:') > 0) = ${options.poster ? 1 : 0}`
+    : "1 = 1";
   const deletedFilter = options.includeDeleted ? "1 = 1" : "m.is_deleted = 0";
 
   if (options.includeContent) {
@@ -305,7 +315,7 @@ export const listMemosForMcp = async (
                 m.source_memo_ids, m.merge_source_count, m.merged_into_memo_id
          FROM memos m
          INNER JOIN memo_contents c ON c.memo_id = m.id
-         WHERE m.workspace_id = ? AND ${deletedFilter}
+         WHERE m.workspace_id = ? AND ${deletedFilter} AND ${posterFilter}
            AND (? IS NULL OR m.notebook_id = ?)
          ORDER BY m.updated_at DESC, m.id ASC
          LIMIT ? OFFSET ?`
@@ -327,10 +337,10 @@ export const listMemosForMcp = async (
     .prepare(
       `SELECT m.id, m.notebook_id, m.title, m.excerpt, m.tags_json, m.is_pinned,
               m.is_archived, m.is_deleted, m.created_at, m.updated_at, m.deleted_at, c.revision,
-              c.content_text
+              c.content_text, (instr(c.content_markdown, '<!-- edgeever-poster-v1:') > 0) AS is_poster
        FROM memos m
        INNER JOIN memo_contents c ON c.memo_id = m.id
-       WHERE m.workspace_id = ? AND ${deletedFilter}
+       WHERE m.workspace_id = ? AND ${deletedFilter} AND ${posterFilter}
          AND (? IS NULL OR m.notebook_id = ?)
        ORDER BY m.updated_at DESC, m.id ASC
        LIMIT ? OFFSET ?`
@@ -1340,8 +1350,8 @@ export const updateMemoRecord = async (
     isSuspiciousMemoOverwrite(current.title, current.content_text, title, contentText)
   ) {
     return {
-      error: "suspicious_memo_overwrite",
-      message: "Save blocked because the title changed while most of the note content disappeared.",
+      error: SUSPICIOUS_MEMO_OVERWRITE_ERROR,
+      message: SUSPICIOUS_MEMO_OVERWRITE_MESSAGE,
     };
   }
   const tags = input.tags === undefined ? parseJsonArray(current.tags_json) : normalizeTags(input.tags);
